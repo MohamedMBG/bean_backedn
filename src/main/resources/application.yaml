@@ -2,7 +2,24 @@ spring:
   application:
     name: backend
 
+server:
+  port: ${PORT:8080}
+
 firebase:
   credentials:
     path: ${FIREBASE_CREDENTIALS_PATH:}
     json: ${FIREBASE_CREDENTIALS_JSON:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+
+logging:
+  pattern:
+    level: "%5p [${spring.application.name},%X{requestId:-}]"
