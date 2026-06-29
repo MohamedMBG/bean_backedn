@@ -1,6 +1,9 @@
 package com.beanLoyal.backend.config;
 
+import com.beanLoyal.backend.common.ApiError;
 import com.beanLoyal.backend.security.FirebaseAuthFilter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -16,9 +19,14 @@ public class SecurityConfig {
     // Hold reference to the Firebase auth filter so we can register it in the chain.
     private final FirebaseAuthFilter firebaseAuthFilter;
 
-    // Constructor injection: Spring passes the FirebaseAuthFilter bean it created via @Component.
-    public SecurityConfig(FirebaseAuthFilter firebaseAuthFilter) {
+    // Used by the AuthenticationEntryPoint lambda to serialize ApiError JSON for 401s
+    // that originate from Spring (e.g. "no token at all" — our filter only handles bad tokens).
+    private final ObjectMapper objectMapper;
+
+    // Constructor injection: Spring passes both managed beans.
+    public SecurityConfig(FirebaseAuthFilter firebaseAuthFilter, ObjectMapper objectMapper) {
         this.firebaseAuthFilter = firebaseAuthFilter;
+        this.objectMapper = objectMapper;
     }
 
     // @Bean tells Spring: call this method, register the returned SecurityFilterChain.
@@ -56,7 +64,21 @@ public class SecurityConfig {
                 // Insert FirebaseAuthFilter before Spring's default username/password filter slot.
                 // This ensures our filter runs early enough to populate SecurityContext
                 // before Spring's authorization checks evaluate `.authenticated()`.
-                .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(firebaseAuthFilter, UsernamePasswordAuthenticationFilter.class)
+
+                // Unified 401 shape for the "no credentials at all" case.
+                // FirebaseAuthFilter already writes ApiError JSON when a token is present but invalid.
+                // Without this entry point, Spring's default sends an empty 401 body, breaking the
+                // "one response shape" contract clients rely on.
+                .exceptionHandling(eh -> eh.authenticationEntryPoint((req, res, ex) -> {
+                    res.setStatus(HttpServletResponse.SC_UNAUTHORIZED);
+                    res.setContentType("application/json");
+                    res.setCharacterEncoding("UTF-8");
+                    objectMapper.writeValue(
+                            res.getWriter(),
+                            ApiError.of("AUTH_REQUIRED", "Authentication required")
+                    );
+                }));
 
         // Build the chain and hand it back to Spring to register.
         return http.build();
