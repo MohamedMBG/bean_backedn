@@ -1,0 +1,16 @@
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID:beanloyal-dev}
+  credentials:
+    path: ${FIREBASE_CREDENTIALS_PATH:}
+    json: ${FIREBASE_CREDENTIALS_JSON:}
+
+logging:
+  level:
+    root: INFO
+    com.beanLoyal.backend: DEBUG
+    org.springframework.security: DEBUG

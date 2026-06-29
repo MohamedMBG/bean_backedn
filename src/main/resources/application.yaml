@@ -1,11 +1,14 @@
 spring:
   application:
     name: backend
+  profiles:
+    active: ${SPRING_PROFILES_ACTIVE:dev}
 
 server:
   port: ${PORT:8080}
 
 firebase:
+  project-id: ${FIREBASE_PROJECT_ID:}
   credentials:
     path: ${FIREBASE_CREDENTIALS_PATH:}
     json: ${FIREBASE_CREDENTIALS_JSON:}

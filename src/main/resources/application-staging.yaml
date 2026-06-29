@@ -1,0 +1,15 @@
+spring:
+  config:
+    activate:
+      on-profile: staging
+
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID:beanloyal-staging}
+  credentials:
+    path: ${FIREBASE_CREDENTIALS_PATH:/etc/secrets/sa.json}
+    json: ${FIREBASE_CREDENTIALS_JSON:}
+
+logging:
+  level:
+    root: INFO
+    com.beanLoyal.backend: INFO

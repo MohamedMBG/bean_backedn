@@ -1,0 +1,15 @@
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID:beanloyal-prod}
+  credentials:
+    path: ${FIREBASE_CREDENTIALS_PATH:/etc/secrets/sa.json}
+    json: ${FIREBASE_CREDENTIALS_JSON:}
+
+logging:
+  level:
+    root: WARN
+    com.beanLoyal.backend: INFO
