@@ -1,4 +1,9 @@
 package com.beanLoyal.backend.security;
 
-public class CurrentUser {
-}
+import java.util.Map;
+
+public record CurrentUser(
+        String uid,
+        String email,
+        Map<String , Object> claims
+) { }
