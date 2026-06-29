@@ -64,3 +64,9 @@ secrets/
 *.key
 *.p12
 *.jks
+
+### Local AI agent instructions ###
+AGENTS.md
+agents.md
+CLAUDE.md
+claude.md
