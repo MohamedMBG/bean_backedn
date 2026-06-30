@@ -1,0 +1,27 @@
+version: "1"
+
+# Sourcery AI Code Review — runs on every PR opened against this repo.
+# Docs: https://docs.sourcery.ai/
+
+ai_code_review:
+  enabled: true
+
+  # Review only PRs targeting main (and any future release branches).
+  # Drafts are skipped to avoid noise on work-in-progress.
+  trigger:
+    drafts: false
+    base_branches:
+      - main
+
+  # Summary comment lands first, then file-level comments inline.
+  summary:
+    enabled: true
+
+  # Skip generated / vendored / wrapper code so feedback stays signal-heavy.
+  ignore:
+    - "backend/gradle/**"
+    - "backend/gradlew"
+    - "backend/gradlew.bat"
+    - "backend/build/**"
+    - "**/*.bin"
+    - "**/*.lock"
