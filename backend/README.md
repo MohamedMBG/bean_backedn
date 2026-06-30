@@ -1,6 +1,10 @@
 # BeanLoyal Backend
 
+[![Sourcery](https://img.shields.io/badge/Sourcery-AI%20Code%20Review-blueviolet)](https://sourcery.ai/)
+
 Spring Boot backend for BeanLoyal. Uses Firebase Admin SDK for auth.
+
+Every PR is automatically reviewed by [Sourcery AI](https://sourcery.ai/). Config: `.sourcery.yaml` at repo root.
 
 ## Stack
 
