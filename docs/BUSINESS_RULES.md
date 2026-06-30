@@ -270,6 +270,52 @@ Bucket4j in-memory. Per-IP and per-uid where authenticated.
 
 ---
 
+## 5b. Roles & Custom Claims (LOCKED 2026-06-30)
+
+### Model
+- Single role per user, stored as Firebase custom claim `role` (string).
+- Recognized values: `cashier`, `admin`. Unknown / missing = regular user.
+- Backend maps `role: X` → Spring authority `ROLE_X` (uppercased) in `FirebaseAuthFilter`.
+- Endpoints guard with `@PreAuthorize("hasRole('CASHIER')")` or `hasRole('ADMIN')`.
+- Denial → 403 `FORBIDDEN` via `GlobalExceptionHandler` (no role enumeration leak).
+
+### How to assign a role
+
+**Option A — Firebase Admin SDK (preferred, scriptable):**
+```java
+FirebaseAuth.getInstance().setCustomUserClaims(
+    uid,
+    Map.of("role", "cashier")  // or "admin"
+);
+```
+Run from a one-off `CommandLineRunner` or future admin endpoint (#20).
+
+**Option B — Node CLI:**
+```bash
+node -e "
+const admin = require('firebase-admin');
+admin.initializeApp({ credential: admin.credential.cert(require('./sa.json')) });
+admin.auth().setCustomUserClaims('USER_UID', { role: 'cashier' })
+  .then(() => console.log('done')).catch(console.error);
+"
+```
+
+### Critical client behavior
+
+After granting/revoking a role, the client's existing ID token still carries the OLD claims (good for up to 1 hour). Force a refresh on the client to ship new claims immediately:
+
+```kotlin
+FirebaseAuth.getInstance().currentUser?.getIdToken(true)  // forceRefresh = true
+```
+
+Without forced refresh, role changes apply lazily on the next token rotation.
+
+### Why single-role string, not roles array
+
+MVP has 3 categories: regular / cashier / admin. A role array adds set-intersection logic for zero MVP benefit. If a 4th category (e.g. `manager` = cashier + limited admin) is needed, switch to a `roles` array claim then — change is localized to `FirebaseAuthFilter.extractAuthorities`.
+
+---
+
 ## 6. Environment Isolation (LOCKED)
 
 - Three Firebase projects: `beanloyal-dev`, `beanloyal-staging`, `beanloyal-prod`
@@ -288,3 +334,4 @@ Bucket4j in-memory. Per-IP and per-uid where authenticated.
 | 2026-06-29 | Split Firebase per env | Staging pollution risk to prod |
 | 2026-06-30 | Locked §2 QR earn rules | Unblocked issue #12 (earn endpoint); MVP defaults chosen, owner overridable |
 | 2026-06-30 | Locked §3 redemption rules | Unblocked issues #13/#14/#15/#11 (redeem, cancel, cashier complete, birthday); MVP defaults chosen, owner overridable |
+| 2026-06-30 | Locked §5b roles/claims model | Single-role string, `ROLE_<UPPER>` authority mapping; unblocks #15 (cashier complete) + #20 (admin endpoints) |

@@ -205,6 +205,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 2 | Structured request logging | ✅ `RequestLoggingFilter` — requestId UUID in MDC, `X-Request-ID` header, one INFO line per request |
 | 2 | Token redaction in logs | ✅ achieved by never logging headers — no allow/deny list to maintain |
 | 2 | `AuthenticationEntryPoint` (unified 401 shape) | ✅ inline lambda in `SecurityConfig` returns `ApiError(AUTH_REQUIRED)` |
+| 2 | Role mapping from Firebase custom claims | ✅ `FirebaseAuthFilter.extractAuthorities` → `ROLE_<UPPER>`; `@EnableMethodSecurity` on |
 | 2 | Rate limit on sensitive routes | ⬜ |
 | 2 | Render deploy of skeleton + `/health` | ⬜ |
 | 2 | Local AI agent documentation/progress instructions | ✅ `AGENTS.md` + `CLAUDE.md` created, ignored by Git, and updated with documentation + planning rules on 2026-06-29 |

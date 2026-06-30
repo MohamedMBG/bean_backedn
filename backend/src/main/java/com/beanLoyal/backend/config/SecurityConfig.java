@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -13,7 +14,10 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
 // Tells Spring this class contributes bean definitions to the application context.
+// @EnableMethodSecurity activates @PreAuthorize / @PostAuthorize on controller and service methods.
+// Used by cashier and admin endpoints to gate access by role authority derived from Firebase claims.
 @Configuration
+@EnableMethodSecurity
 public class SecurityConfig {
 
     // Hold reference to the Firebase auth filter so we can register it in the chain.
