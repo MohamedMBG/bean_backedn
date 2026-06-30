@@ -12,6 +12,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -79,11 +81,17 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
                     decoded.getClaims()
             );
 
+            // Map Firebase custom claim `role` → Spring Security authority `ROLE_<UPPER>`.
+            // Set role per user via Firebase Admin: setCustomUserClaims(uid, Map.of("role", "cashier"))
+            // then have the client force-refresh its ID token so the new claim ships on the next request.
+            // Endpoints guard with @PreAuthorize("hasRole('CASHIER')") / hasRole('ADMIN').
+            // MVP supports a single role per user. If multi-role is needed later, switch to a `roles` array claim.
+            List<GrantedAuthority> authorities = extractAuthorities(decoded.getClaims());
+
             // Wrap principal in Spring's Authentication object.
             // Credentials = null (we already verified; no password to keep around).
-            // Authorities = empty list for now; role mapping from claims happens later (Phase 7+).
             UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(principal, null, List.of());
+                    new UsernamePasswordAuthenticationToken(principal, null, authorities);
 
             // Store into the request-scoped SecurityContext so downstream:
             //   - @AuthenticationPrincipal CurrentUser resolves
@@ -126,5 +134,18 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
         response.setCharacterEncoding("UTF-8");
         ApiError body = ApiError.of(code, message);
         objectMapper.writeValue(response.getWriter(), body);
+    }
+
+    /**
+     * Build Spring Security authorities from Firebase custom claims.
+     * Reads the single claim {@code role} (string) and maps it to authority {@code ROLE_<UPPER>}.
+     * Unknown / missing role → empty authorities (plain authenticated user, no elevated access).
+     * Non-string role value → ignored defensively (custom claims are caller-influenced via admin tooling).
+     */
+    private List<GrantedAuthority> extractAuthorities(java.util.Map<String, Object> claims) {
+        if (claims == null) return List.of();
+        Object role = claims.get("role");
+        if (!(role instanceof String s) || s.isBlank()) return List.of();
+        return List.of(new SimpleGrantedAuthority("ROLE_" + s.trim().toUpperCase()));
     }
 }
