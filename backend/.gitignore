@@ -1,0 +1,72 @@
+HELP.md
+.gradle
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### STS ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+### IntelliJ IDEA ###
+.idea
+*.iws
+*.iml
+*.ipr
+out/
+!**/src/main/**/out/
+!**/src/test/**/out/
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### OS ###
+.DS_Store
+Thumbs.db
+desktop.ini
+
+### Logs ###
+*.log
+logs/
+
+### Env / local config ###
+.env
+.env.*
+!.env.example
+application-local.yaml
+application-local.yml
+application-local.properties
+application-secrets.yaml
+application-secrets.yml
+
+### Secrets / credentials ###
+*serviceAccount*.json
+*firebase-adminsdk*.json
+*credentials*.json
+secrets/
+*.pem
+*.key
+*.p12
+*.jks
+
+### Local AI agent instructions ###
+AGENTS.md
+agents.md
+CLAUDE.md
+claude.md
