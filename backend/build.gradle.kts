@@ -23,6 +23,7 @@ dependencies {
 	implementation("org.springframework.boot:spring-boot-starter-validation")
 	implementation("org.springframework.boot:spring-boot-starter-web")
 	implementation("com.google.firebase:firebase-admin:9.3.0") // <---- added firebase admin sdk dependency
+	implementation("com.bucket4j:bucket4j-core:8.10.1") // in-memory token bucket for per-IP + per-UID rate limits
 	compileOnly("org.projectlombok:lombok")
 	developmentOnly("org.springframework.boot:spring-boot-devtools")
 	runtimeOnly("io.micrometer:micrometer-registry-prometheus")
