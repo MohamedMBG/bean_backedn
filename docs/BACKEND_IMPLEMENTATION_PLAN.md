@@ -127,8 +127,10 @@ backend/src/main/java/com/beanLoyal/backend/
 - Spring DevTools (dev only)
 - spring-security-test
 
+Added:
+- `com.bucket4j:bucket4j-core:8.10.1` — token-bucket primitives, used by `RateLimitService`. Chose core (not the Spring Boot starter) because per-UID keying is business-logic tied to Firebase claims and the starter's cache/YAML abstractions add complexity without helping a single-instance Render deploy.
+
 Planned additions:
-- `bucket4j-spring-boot-starter` — rate limiting (Phase 2)
 - `org.springframework.boot:spring-boot-starter-data-redis` — only if rate limit needs distributed store (likely skip)
 
 ---
@@ -206,7 +208,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 2 | Token redaction in logs | ✅ achieved by never logging headers — no allow/deny list to maintain |
 | 2 | `AuthenticationEntryPoint` (unified 401 shape) | ✅ inline lambda in `SecurityConfig` returns `ApiError(AUTH_REQUIRED)` |
 | 2 | Role mapping from Firebase custom claims | ✅ `FirebaseAuthFilter.extractAuthorities` → `ROLE_<UPPER>`; `@EnableMethodSecurity` on |
-| 2 | Rate limit on sensitive routes | ⬜ |
+| 2 | Rate limit on sensitive routes | ⏳ kernel landed (`RateLimitService` + `RateLimitPolicy` + `RateLimitException` + 429 handler mapping) — routes opt-in in Phase 5+ |
 | 2 | Render deploy of skeleton + `/health` | ⬜ |
 | 2 | Local AI agent documentation/progress instructions | ✅ `AGENTS.md` + `CLAUDE.md` created, ignored by Git, and updated with documentation + planning rules on 2026-06-29 |
 | 3 | Android `BuildConfig.BACKEND_BASE_URL` | ⬜ |
@@ -505,19 +507,14 @@ Completed:
 - ✅ `security/CurrentUser.java` — record `(uid, email, claims)`
 
 Remaining:
-1. Build real `security/FirebaseAuthFilter` body
-   - Extract `Authorization: Bearer <token>`
-   - `firebaseAuth.verifyIdToken(token)`
-   - Construct `CurrentUser` from `FirebaseToken`
-   - Set `UsernamePasswordAuthenticationToken` in `SecurityContextHolder`
-   - 401 + `ApiError` JSON on missing/invalid
-2. `common/GlobalExceptionHandler` (`@RestControllerAdvice`) — map validation/access/illegal/fallthrough to `ApiError`
-3. `common/RequestLoggingFilter` — requestId in MDC, redact `Authorization` + `*token*` headers
+1. ✅ Build real `security/FirebaseAuthFilter` body
+2. ✅ `common/GlobalExceptionHandler` (`@RestControllerAdvice`)
+3. ✅ `common/RequestLoggingFilter`
 4. Smoke test boot locally with `FIREBASE_CREDENTIALS_PATH` set
-5. Bucket4j rate limit on sensitive routes
-6. Render service + Secret File
-7. Deploy skeleton, verify `/health` works publicly
-8. Write `docs/BUSINESS_RULES.md` — QR + redemption rules (unblocks Phase 5/6)
+5. ⏳ Bucket4j rate limit — kernel landed (`RateLimitService`, `RateLimitPolicy`, `RateLimitException`, 429 handler mapping). Routes call `RateLimitService.check(policy, ip, uid)` when they land in Phase 5+.
+6. Render service + Secret File (user action)
+7. Deploy skeleton, verify `/health` works publicly (user action)
+8. ✅ Write `docs/BUSINESS_RULES.md` — §2 QR + §3 redemption locked 2026-06-30
 
 ---
 
