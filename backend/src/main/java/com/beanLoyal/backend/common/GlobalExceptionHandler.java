@@ -122,6 +122,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Caller exhausted a rate-limit bucket (per {@code BUSINESS_RULES.md §4}).
+     * Sets {@code Retry-After} per RFC 9110 so well-behaved clients back off deterministically.
+     */
+    @ExceptionHandler(RateLimitException.class)
+    public ResponseEntity<ApiError> handleRateLimit(RateLimitException ex) {
+        log.warn("Rate limit exceeded; retryAfter={}s", ex.getRetryAfterSeconds());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header("Retry-After", Long.toString(ex.getRetryAfterSeconds()))
+                .body(ApiError.of("RATE_LIMITED", "Too many requests"));
+    }
+
+    /**
      * Catch-all for any exception not handled above. The exception message MUST NOT be exposed to
      * the client — it may carry stack details, internal identifiers, or third-party error text.
      * The full stack is logged server-side so on-call can correlate via the request id.

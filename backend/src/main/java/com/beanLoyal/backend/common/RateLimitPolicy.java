@@ -1,0 +1,54 @@
+package com.beanLoyal.backend.common;
+
+import io.github.bucket4j.Bandwidth;
+
+import java.time.Duration;
+
+/**
+ * Rate-limit policy for a class of routes. Each policy carries two independent {@link Bandwidth}
+ * definitions: one applied per client IP, one per authenticated Firebase UID.
+ * <p>
+ * Values mirror {@code docs/BUSINESS_RULES.md §4}. Change here and there together.
+ * <p>
+ * Both bandwidths are consumed on every request so the effective cap is the stricter of the two.
+ * A route hit by an anonymous client (no UID yet in {@code SecurityContext}) skips the UID side
+ * and only pays the IP side — pre-auth surface stays bounded without falsely rejecting first-time
+ * traffic.
+ *
+ * @param ipBandwidth  per-source-IP bucket definition
+ * @param uidBandwidth per-Firebase-UID bucket definition
+ */
+public record RateLimitPolicy(Bandwidth ipBandwidth, Bandwidth uidBandwidth) {
+
+    /** {@code POST /api/v1/loyalty/earn} — 30/min per IP, 10/min per UID. */
+    public static final RateLimitPolicy EARN = new RateLimitPolicy(
+            perMinute(30),
+            perMinute(10)
+    );
+
+    /** {@code POST /api/v1/rewards/redeem} — 20/min per IP, 5/min per UID. */
+    public static final RateLimitPolicy REDEEM = new RateLimitPolicy(
+            perMinute(20),
+            perMinute(5)
+    );
+
+    /**
+     * {@code POST /api/v1/rewards/birthday} — 20/min per IP, 3/day per UID.
+     * Daily UID quota mirrors the once-per-year business rule with a generous retry envelope
+     * for network flakes; the idempotency layer still guarantees single grant per calendar year.
+     */
+    public static final RateLimitPolicy BIRTHDAY = new RateLimitPolicy(
+            perMinute(20),
+            Bandwidth.builder().capacity(3).refillGreedy(3, Duration.ofDays(1)).build()
+    );
+
+    /** {@code POST /api/v1/cashier/**} and {@code /api/v1/admin/**} — 60/min per IP and per UID. */
+    public static final RateLimitPolicy CASHIER_ADMIN = new RateLimitPolicy(
+            perMinute(60),
+            perMinute(60)
+    );
+
+    private static Bandwidth perMinute(long count) {
+        return Bandwidth.builder().capacity(count).refillGreedy(count, Duration.ofMinutes(1)).build();
+    }
+}
