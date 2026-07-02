@@ -152,6 +152,19 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Business-rule failure raised via {@link ApiException} (e.g. {@code BIRTHDAY_NOT_TODAY},
+     * {@code BIRTHDAY_ALREADY_CLAIMED} — see the per-feature error tables in
+     * {@code docs/BUSINESS_RULES.md}). Status and code travel on the exception itself so one
+     * handler covers every domain error code without a class per code.
+     */
+    @ExceptionHandler(ApiException.class)
+    public ResponseEntity<ApiError> handleApiException(ApiException ex) {
+        log.debug("Business rule rejected request: {} ({})", ex.getCode(), ex.getStatus());
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiError.of(ex.getCode(), ex.getMessage()));
+    }
+
+    /**
      * Catch-all for any exception not handled above. The exception message MUST NOT be exposed to
      * the client — it may carry stack details, internal identifiers, or third-party error text.
      * The full stack is logged server-side so on-call can correlate via the request id.
