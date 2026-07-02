@@ -1,9 +1,11 @@
 package com.beanLoyal.backend.config;
 
 import com.google.auth.oauth2.GoogleCredentials;
+import com.google.cloud.firestore.Firestore;
 import com.google.firebase.FirebaseApp;
 import com.google.firebase.FirebaseOptions;
 import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.cloud.FirestoreClient;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -79,6 +81,29 @@ public class FirebaseAdminConfig {
     public FirebaseAuth firebaseAuth() {
         // Pulls singleton from initialized FirebaseApp. Used to verify ID tokens.
         return FirebaseAuth.getInstance();
+    }
+
+    /**
+     * Firestore client tied to the default {@link FirebaseApp} initialized in {@link #init()}.
+     * <p>
+     * Injected by services that read/write operational Firestore collections
+     * (idempotency records, earn codes, redeem codes, birthday claims, activity
+     * logs, devices, audit). Reuses the same service-account credentials as
+     * {@link #firebaseAuth()} — no separate configuration required.
+     * <p>
+     * The returned instance is thread-safe and expected to be shared across
+     * the whole application. It picks up the Firebase project selected via
+     * {@code FIREBASE_CREDENTIALS_PATH} / {@code FIREBASE_CREDENTIALS_JSON}
+     * (see {@code application-*.yaml} per Spring profile).
+     *
+     * @return singleton Firestore client for the active Firebase project.
+     */
+    @Bean
+    public Firestore firestore() {
+        // Depends on init() having populated the default FirebaseApp. Same guarantee
+        // as firebaseAuth() above: @PostConstruct runs before any @Bean factory
+        // method on this configuration class is invoked by the container.
+        return FirestoreClient.getFirestore();
     }
 
 }

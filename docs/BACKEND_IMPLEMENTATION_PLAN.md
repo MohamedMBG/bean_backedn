@@ -209,6 +209,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 2 | `AuthenticationEntryPoint` (unified 401 shape) | ✅ inline lambda in `SecurityConfig` returns `ApiError(AUTH_REQUIRED)` |
 | 2 | Role mapping from Firebase custom claims | ✅ `FirebaseAuthFilter.extractAuthorities` → `ROLE_<UPPER>`; `@EnableMethodSecurity` on |
 | 2 | Rate limit on sensitive routes | ⏳ kernel landed (`RateLimitService` + `RateLimitPolicy` + `RateLimitException` + 429 handler mapping) — routes opt-in in Phase 5+ |
+| 2 | Firestore client `@Bean` | ✅ `FirebaseAdminConfig.firestore()` — reuses same service account credentials as `firebaseAuth()`, unblocks Phase 4+ Firestore writes |
 | 2 | Render deploy of skeleton + `/health` | ⬜ |
 | 2 | Local AI agent documentation/progress instructions | ✅ `AGENTS.md` + `CLAUDE.md` created, ignored by Git, and updated with documentation + planning rules on 2026-06-29 |
 | 3 | Android `BuildConfig.BACKEND_BASE_URL` | ⬜ |
@@ -505,6 +506,7 @@ Completed:
 - ✅ `health/HealthController.java`
 - ✅ `config/SecurityConfig.java` — permit health, require auth elsewhere, stateless, CSRF off, filter wired before `UsernamePasswordAuthenticationFilter`
 - ✅ `security/CurrentUser.java` — record `(uid, email, claims)`
+- ✅ `config/FirebaseAdminConfig.firestore()` — Firestore client `@Bean` wired, reuses service-account credentials, unblocks Phase 4+ economy writes
 
 Remaining:
 1. ✅ Build real `security/FirebaseAuthFilter` body
@@ -515,6 +517,7 @@ Remaining:
 6. Render service + Secret File (user action)
 7. Deploy skeleton, verify `/health` works publicly (user action)
 8. ✅ Write `docs/BUSINESS_RULES.md` — §2 QR + §3 redemption locked 2026-06-30
+9. Phase 4 birthday endpoint — next code work; needs idempotency foundation first (BUSINESS_RULES §1)
 
 ---
 
