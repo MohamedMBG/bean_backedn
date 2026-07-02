@@ -7,6 +7,8 @@ import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.Transaction;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -58,6 +60,9 @@ import java.util.concurrent.ExecutionException;
  */
 @Service
 public class IdempotencyService {
+
+    // Server key logged (it is already a sha256, safe); raw client Idempotency-Key is never logged.
+    private static final Logger log = LoggerFactory.getLogger(IdempotencyService.class);
 
     /** Firestore collection holding one dedup record per {@code (uid, key, path)} tuple. */
     static final String COLLECTION = "idempotency";
@@ -132,6 +137,9 @@ public class IdempotencyService {
         ResponseEntity.BodyBuilder builder = ResponseEntity.status(outcome.status())
                 .contentType(MediaType.APPLICATION_JSON);
         if (outcome.replayed()) {
+            // Logged here (not in the transaction lambda) so it fires exactly once even if the
+            // transaction retried on contention. requestId in MDC correlates it to the request line.
+            log.debug("Idempotency replay served: key={} path={} status={}", key, path, outcome.status());
             builder.header(REPLAY_HEADER, "true");
         }
         return builder.body(outcome.body());
@@ -150,15 +158,21 @@ public class IdempotencyService {
                 // Replay path (§1 step 4): a live record exists → return the stored response,
                 // do NOT re-run business logic. expiresAt is re-checked here because Firestore's
                 // TTL sweep is lazy and an expired-but-not-yet-deleted record must be re-run.
-                if (snap.exists() && !isExpired(snap, now)) {
-                    String storedHash = snap.getString("requestHash");
-                    // §1 step 5: same key, different body → 409. Aborts the transaction (no writes yet).
-                    if (storedHash == null || !storedHash.equals(requestHash)) {
-                        throw IdempotencyException.keyReused();
+                if (snap.exists()) {
+                    if (!isExpired(snap, now)) {
+                        String storedHash = snap.getString("requestHash");
+                        // §1 step 5: same key, different body → 409. Aborts the transaction (no writes yet).
+                        if (storedHash == null || !storedHash.equals(requestHash)) {
+                            throw IdempotencyException.keyReused();
+                        }
+                        Long status = snap.getLong("status");
+                        return new StoredResponse(status == null ? 200 : status.intValue(),
+                                snap.getString("responseBody"), true);
                     }
-                    Long status = snap.getLong("status");
-                    return new StoredResponse(status == null ? 200 : status.intValue(),
-                            snap.getString("responseBody"), true);
+                    // Record exists but is past its TTL (or has a missing/malformed expiresAt): the
+                    // Firestore TTL sweep hasn't deleted it yet. Fall through to re-run and overwrite.
+                    // DEBUG only; may repeat if the transaction retries on contention (rare, harmless).
+                    log.debug("Idempotency record expired, re-running: key={} path={}", ref.getId(), path);
                 }
 
                 // Fresh path (§1 step 3): run business logic in THIS transaction, then persist the
