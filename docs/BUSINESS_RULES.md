@@ -6,9 +6,13 @@
 
 ---
 
-## 1. Idempotency Contract (LOCKED)
+## 1. Idempotency Contract (LOCKED — IMPLEMENTED 2026-07-02)
 
 Every state-mutating endpoint (POST/PUT/DELETE under `/api/v1`) MUST honor `Idempotency-Key` header.
+
+Implemented by `common/IdempotencyService.execute(...)`: endpoints pass their business logic as
+`TransactionalWork`; the record write and the economy write share one Firestore transaction.
+`IdempotencyException` maps to 400 `IDEMPOTENCY_KEY_REQUIRED` / 409 `IDEMPOTENCY_KEY_REUSED`.
 
 ### Header
 - Name: `Idempotency-Key`

@@ -134,6 +134,24 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * Caller violated the {@code Idempotency-Key} contract (per {@code BUSINESS_RULES.md §1}).
+     * The exception carries its own status + code: 400 {@code IDEMPOTENCY_KEY_REQUIRED} (missing
+     * header) or 409 {@code IDEMPOTENCY_KEY_REUSED} (same key, different body).
+     */
+    @ExceptionHandler(IdempotencyException.class)
+    public ResponseEntity<ApiError> handleIdempotency(IdempotencyException ex) {
+        // Key reused with a changed body is a client bug or replay attack worth a WARN;
+        // a missing header is a routine client mistake, so keep it at DEBUG.
+        if (ex.getStatus() == HttpStatus.CONFLICT) {
+            log.warn("Idempotency conflict: {}", ex.getCode());
+        } else {
+            log.debug("Idempotency error: {}", ex.getCode());
+        }
+        return ResponseEntity.status(ex.getStatus())
+                .body(ApiError.of(ex.getCode(), ex.getMessage()));
+    }
+
+    /**
      * Catch-all for any exception not handled above. The exception message MUST NOT be exposed to
      * the client — it may carry stack details, internal identifiers, or third-party error text.
      * The full stack is logged server-side so on-call can correlate via the request id.
