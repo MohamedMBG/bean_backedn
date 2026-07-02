@@ -210,6 +210,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 2 | Role mapping from Firebase custom claims | ✅ `FirebaseAuthFilter.extractAuthorities` → `ROLE_<UPPER>`; `@EnableMethodSecurity` on |
 | 2 | Rate limit on sensitive routes | ⏳ kernel landed (`RateLimitService` + `RateLimitPolicy` + `RateLimitException` + 429 handler mapping) — routes opt-in in Phase 5+ |
 | 2 | Firestore client `@Bean` | ✅ `FirebaseAdminConfig.firestore()` — reuses same service account credentials as `firebaseAuth()`, unblocks Phase 4+ Firestore writes |
+| 2 | Idempotency foundation | ✅ `IdempotencyService.execute(...)` runs business logic inside the same Firestore transaction as the `idempotency/{key}` record write (atomic per BUSINESS_RULES §1). `IdempotencyException` → 400 `IDEMPOTENCY_KEY_REQUIRED` / 409 `IDEMPOTENCY_KEY_REUSED` via `GlobalExceptionHandler`. Unit test on sha256 key derivation green. Endpoints opt-in Phase 4+ |
 | 2 | Render deploy of skeleton + `/health` | ⬜ |
 | 2 | Local AI agent documentation/progress instructions | ✅ `AGENTS.md` + `CLAUDE.md` created, ignored by Git, and updated with documentation + planning rules on 2026-06-29 |
 | 3 | Android `BuildConfig.BACKEND_BASE_URL` | ⬜ |
@@ -517,7 +518,8 @@ Remaining:
 6. Render service + Secret File (user action)
 7. Deploy skeleton, verify `/health` works publicly (user action)
 8. ✅ Write `docs/BUSINESS_RULES.md` — §2 QR + §3 redemption locked 2026-06-30
-9. Phase 4 birthday endpoint — next code work; needs idempotency foundation first (BUSINESS_RULES §1)
+9. ✅ Idempotency foundation — `IdempotencyService` + `IdempotencyException` + handler mapping (BUSINESS_RULES §1). Transactional wrapper; endpoints opt-in from Phase 4
+10. Phase 4 birthday endpoint — next code work; wraps `IdempotencyService.execute(...)` on top of the existing `birthday_claims/{uid_year}` marker
 
 ---
 
