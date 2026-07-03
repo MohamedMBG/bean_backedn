@@ -205,6 +205,17 @@ MVP defaults. Override per rule by amending this file and bumping the lock date.
 
 ### 3.7 Birthday reward — once per calendar year
 
+**Reward = fixed 50 points, credited to `users/{uid}.points` (locked 2026-07-02, owner decision).**
+
+- Not a catalog reward / redeem code — a direct points grant, same shape as an earn-code credit (§2.1).
+- Implemented by `rewards/BirthdayRewardService.claim(...)`, called from `POST /api/v1/rewards/birthday`
+  inside `IdempotencyService.execute(...)` — the points update and the `birthday_claims` write share
+  one Firestore transaction.
+
+**Schema assumption (not defined elsewhere at time of writing):** `users/{uid}.birthday` is stored as
+an ISO-8601 date string (`yyyy-MM-dd`). Chosen because the Feb-29 edge case below only makes sense as
+a month/day comparison. Revisit if the Android client uses a different representation.
+
 **Calendar year, keyed by `birthday_claims/{uid}_{year}`.**
 
 - Key derived from current calendar year in UTC
@@ -339,3 +350,4 @@ MVP has 3 categories: regular / cashier / admin. A role array adds set-intersect
 | 2026-06-30 | Locked §2 QR earn rules | Unblocked issue #12 (earn endpoint); MVP defaults chosen, owner overridable |
 | 2026-06-30 | Locked §3 redemption rules | Unblocked issues #13/#14/#15/#11 (redeem, cancel, cashier complete, birthday); MVP defaults chosen, owner overridable |
 | 2026-06-30 | Locked §5b roles/claims model | Single-role string, `ROLE_<UPPER>` authority mapping; unblocks #15 (cashier complete) + #20 (admin endpoints) |
+| 2026-07-02 | Locked §3.7 birthday reward = fixed 50 points | §3.7 said "grant reward" without specifying what/how much; owner chose a direct points grant over a catalog-reward redemption to avoid coupling Phase 4 to the Phase 6 catalog |
