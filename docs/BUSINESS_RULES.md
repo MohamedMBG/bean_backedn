@@ -139,6 +139,7 @@ Implemented by `loyalty/LoyaltyController` (`POST /api/v1/loyalty/earn`) + `loya
 | `EARN_CODE_ALREADY_USED` | 409 | `status != active` |
 | `VISIT_COOLDOWN` | 429 | `now - lastEarnAt < 30 min` |
 | `EARN_CODE_INVALID_FORMAT` | 400 | Fails alphabet/length check |
+| `USER_NOT_FOUND` | 404 | `users/{uid}` doc does not exist (schema assumption violated — see `LoyaltyService` Javadoc) |
 | `RATE_LIMITED` | 429 | Bucket4j per-uid or per-IP cap hit (see §4) |
 
 ---
@@ -277,6 +278,8 @@ Bucket4j in-memory. Per-IP and per-uid where authenticated.
 | `GET /health` | unlimited | n/a |
 
 429 response = `ApiError(code: "RATE_LIMITED", message: "Too many requests")` + `Retry-After` header.
+
+**Client IP resolution:** Render terminates TLS at its own reverse proxy, so `request.getRemoteAddr()` is always Render, never the client. `ClientIpResolver` reads the LAST entry of `X-Forwarded-For` instead of the first — with exactly one trusted proxy (Render) in front of this backend, that last entry is the one Render itself appended (the real peer IP), while any earlier entries are attacker-settable by the client. Revisit this resolver if an additional CDN/WAF is ever placed in front of Render.
 
 ---
 

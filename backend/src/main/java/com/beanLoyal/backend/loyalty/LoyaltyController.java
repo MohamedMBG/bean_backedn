@@ -1,6 +1,7 @@
 package com.beanLoyal.backend.loyalty;
 
 import com.beanLoyal.backend.common.ApiV1;
+import com.beanLoyal.backend.common.ClientIpResolver;
 import com.beanLoyal.backend.common.IdempotencyService;
 import com.beanLoyal.backend.common.RateLimitPolicy;
 import com.beanLoyal.backend.common.RateLimitService;
@@ -66,7 +67,7 @@ public class LoyaltyController {
                                        @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                        @RequestBody EarnRequest request,
                                        HttpServletRequest httpRequest) {
-        rateLimitService.check(RateLimitPolicy.EARN, clientIp(httpRequest), user.uid());
+        rateLimitService.check(RateLimitPolicy.EARN, ClientIpResolver.resolve(httpRequest), user.uid());
 
         return idempotencyService.execute(
                 user.uid(),
@@ -75,18 +76,5 @@ public class LoyaltyController {
                 request,
                 transaction -> loyaltyService.earn(transaction, user.uid(), request.code())
         );
-    }
-
-    /**
-     * Resolve the caller's IP for rate limiting. Render terminates TLS at a proxy, so the direct
-     * socket address ({@code getRemoteAddr()}) is the proxy, not the client — prefer the first hop
-     * in {@code X-Forwarded-For} when present, matching standard reverse-proxy convention.
-     */
-    private String clientIp(HttpServletRequest request) {
-        String forwardedFor = request.getHeader("X-Forwarded-For");
-        if (forwardedFor != null && !forwardedFor.isBlank()) {
-            return forwardedFor.split(",")[0].trim();
-        }
-        return request.getRemoteAddr();
     }
 }
