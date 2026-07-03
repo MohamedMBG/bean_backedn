@@ -34,4 +34,19 @@ class LoyaltyServiceTest {
         Instant now = lastEarnAt.plusSeconds(31 * 60);
         assertFalse(LoyaltyService.isCoolingDown(lastEarnAt, now));
     }
+
+    /**
+     * Clock skew: {@code lastEarnAt} lies in the future relative to {@code now} (server clock
+     * adjusted backwards, or a stale read racing a concurrent earn). Documents current, intended
+     * behavior — {@code isCoolingDown} has no special case for this: a future {@code lastEarnAt}
+     * is treated as "still cooling down" because {@code now} is always before
+     * {@code lastEarnAt.plus(VISIT_COOLDOWN)} in that case. This is the fail-safe direction (blocks
+     * an earn rather than allowing an extra one); change deliberately if that stops being desired.
+     */
+    @Test
+    void futureLastEarnAtFromClockSkewIsTreatedAsCoolingDown() {
+        Instant now = Instant.parse("2026-07-03T10:00:00Z");
+        Instant lastEarnAt = now.plusSeconds(60);
+        assertTrue(LoyaltyService.isCoolingDown(lastEarnAt, now));
+    }
 }

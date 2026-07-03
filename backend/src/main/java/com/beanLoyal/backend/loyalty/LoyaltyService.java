@@ -12,6 +12,7 @@ import com.google.cloud.firestore.Transaction;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -35,8 +36,9 @@ import java.util.concurrent.ExecutionException;
  *       overwritten with {@code FieldValue.serverTimestamp()} on every successful earn.</li>
  *   <li>{@code users/{uid}} is assumed to already exist for any authenticated caller (created at
  *       account signup, out of this backend's scope) — same assumption as
- *       {@link com.beanLoyal.backend.rewards.BirthdayRewardService}. If it does not, the
- *       transaction's {@code update} call fails at commit and surfaces as a generic 500.</li>
+ *       {@link com.beanLoyal.backend.rewards.BirthdayRewardService}. Unlike that service, a missing
+ *       doc here fails fast with {@code USER_NOT_FOUND} (see {@link #earn}) rather than surfacing
+ *       as a generic 500 from a failed {@code transaction.update} at commit.</li>
  * </ul>
  */
 @Service
@@ -47,10 +49,12 @@ public class LoyaltyService {
 
     private final Firestore firestore;
     private final EarnCodeService earnCodeService;
+    private final Clock clock;
 
-    public LoyaltyService(Firestore firestore, EarnCodeService earnCodeService) {
+    public LoyaltyService(Firestore firestore, EarnCodeService earnCodeService, Clock clock) {
         this.firestore = firestore;
         this.earnCodeService = earnCodeService;
+        this.clock = clock;
     }
 
     /**
@@ -69,7 +73,8 @@ public class LoyaltyService {
      *         of {@link EarnResponse} on success.
      * @throws ApiException         on any business-rule rejection (§2.8: {@code EARN_CODE_INVALID_FORMAT},
      *                              {@code EARN_CODE_NOT_FOUND}, {@code EARN_CODE_EXPIRED},
-     *                              {@code EARN_CODE_ALREADY_USED}, {@code VISIT_COOLDOWN}); aborts the
+     *                              {@code EARN_CODE_ALREADY_USED}, {@code VISIT_COOLDOWN}) or a
+     *                              missing user profile ({@code USER_NOT_FOUND}, 404); aborts the
      *                              transaction before any write is staged.
      * @throws ExecutionException   propagated from the underlying Firestore {@code get()} calls.
      * @throws InterruptedException propagated from the underlying Firestore {@code get()} calls.
@@ -79,11 +84,17 @@ public class LoyaltyService {
 
         EarnCodeService.validateFormat(code);
 
-        Instant now = Instant.now();
+        Instant now = Instant.now(clock);
         EarnCodeService.ValidatedCode validCode = earnCodeService.readValid(transaction, code, now);
 
         DocumentReference userRef = firestore.collection("users").document(uid);
         DocumentSnapshot userSnap = transaction.get(userRef).get();
+        // Fail fast on a missing profile instead of letting the later transaction.update() abort
+        // at commit with an opaque 500 — same schema assumption as BirthdayRewardService, but
+        // surfaced as a proper domain error here (§2.8-style; see class Javadoc).
+        if (!userSnap.exists()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User profile not found");
+        }
 
         checkCooldown(userSnap, now);
 
@@ -106,12 +117,11 @@ public class LoyaltyService {
      * Reject the scan if the caller earned within the last {@link #VISIT_COOLDOWN} (§2.4). A user
      * doc with no prior {@code lastEarnAt} (new user, or first-ever earn) always passes.
      *
+     * @param userSnap a snapshot already confirmed to exist (see {@link #earn}'s {@code USER_NOT_FOUND}
+     *                 check) — this method does not re-check existence.
      * @throws ApiException 429 {@code VISIT_COOLDOWN} if the cooldown window has not elapsed.
      */
     private void checkCooldown(DocumentSnapshot userSnap, Instant now) {
-        if (!userSnap.exists()) {
-            return;
-        }
         Timestamp lastEarnAt = userSnap.getTimestamp("lastEarnAt");
         if (lastEarnAt == null) {
             return;
