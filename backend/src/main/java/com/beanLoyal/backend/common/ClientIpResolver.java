@@ -30,13 +30,20 @@ public final class ClientIpResolver {
     /**
      * @param request current HTTP request.
      * @return the client IP for rate-limiting purposes; falls back to {@code getRemoteAddr()}
-     *         when {@code X-Forwarded-For} is absent or blank (e.g. local/dev, direct connection).
+     *         when {@code X-Forwarded-For} is absent, blank, or has no non-blank hop (e.g. a
+     *         trailing comma or a stray empty segment) — never returns an empty string, which
+     *         would otherwise collapse every such caller into one shared rate-limit bucket.
      */
     public static String resolve(HttpServletRequest request) {
         String forwardedFor = request.getHeader("X-Forwarded-For");
         if (forwardedFor != null && !forwardedFor.isBlank()) {
             String[] hops = forwardedFor.split(",");
-            return hops[hops.length - 1].trim();
+            for (int i = hops.length - 1; i >= 0; i--) {
+                String hop = hops[i].trim();
+                if (!hop.isEmpty()) {
+                    return hop;
+                }
+            }
         }
         return request.getRemoteAddr();
     }

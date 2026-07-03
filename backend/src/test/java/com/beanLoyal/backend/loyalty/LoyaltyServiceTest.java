@@ -21,6 +21,13 @@ class LoyaltyServiceTest {
         assertTrue(LoyaltyService.isCoolingDown(lastEarnAt, now));
     }
 
+    /**
+     * Boundary case: {@code now == lastEarnAt.plus(VISIT_COOLDOWN)} exactly. Documents that the
+     * window is exclusive of its end — {@code isCoolingDown} uses {@code now.isBefore(...)}, so
+     * the instant the cooldown elapses, the next earn is already allowed rather than blocked for
+     * one more instant. Change deliberately (e.g. {@code isBefore} → {@code !isAfter}) if inclusive
+     * boundary behavior is ever wanted instead.
+     */
     @Test
     void exactlyThirtyMinutesLaterAllows() {
         Instant lastEarnAt = Instant.parse("2026-07-03T10:00:00Z");
