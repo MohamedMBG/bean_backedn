@@ -100,9 +100,9 @@ backend/src/main/java/com/beanLoyal/backend/
 │   ├── RewardRedemptionService.java         ⏳ Phase 6
 │   └── RedeemCodeService.java               ⏳ Phase 6, 7
 ├── loyalty/
-│   ├── LoyaltyController.java               ⏳ Phase 5
-│   ├── LoyaltyService.java                  ⏳ Phase 5
-│   └── EarnCodeService.java                 ⏳ Phase 5
+│   ├── LoyaltyController.java               ✅ Phase 5
+│   ├── LoyaltyService.java                  ✅ Phase 5
+│   └── EarnCodeService.java                 ✅ Phase 5
 ├── cashier/
 │   └── CashierController.java               ⏳ Phase 7
 ├── admin/
@@ -217,7 +217,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 3 | Android API DTO package | ⬜ |
 | 3 | Authenticated request helper | ⬜ |
 | 4 | `POST /api/rewards/birthday` | ✅ `RewardsController` + `BirthdayRewardService` — idempotency-guarded, rate-limited, fixed 50pt grant (BUSINESS_RULES §3.7) |
-| 5 | `POST /api/loyalty/earn` | ⬜ |
+| 5 | `POST /api/loyalty/earn` | ✅ `LoyaltyController` + `LoyaltyService` + `EarnCodeService` — idempotency-guarded, rate-limited (`RateLimitPolicy.EARN`), 30-min visit cooldown, single-use codes (BUSINESS_RULES §2) |
 | 6 | `POST /api/rewards/redeem` | ⬜ |
 | 7 | `POST /api/rewards/redeem/cancel` | ⬜ |
 | 7 | `POST /api/cashier/redeem/complete` | ⬜ |
@@ -520,7 +520,8 @@ Remaining:
 8. ✅ Write `docs/BUSINESS_RULES.md` — §2 QR + §3 redemption locked 2026-06-30
 9. ✅ Idempotency foundation — `IdempotencyService` + `IdempotencyException` + handler mapping (BUSINESS_RULES §1). Transactional wrapper; endpoints opt-in from Phase 4
 10. ✅ Phase 4 birthday endpoint — `rewards/RewardsController` (`POST /api/v1/rewards/birthday`) + `rewards/BirthdayRewardService`. Wraps `IdempotencyService.execute(...)`, checks `birthday_claims/{uid}_{year}`, grants fixed 50 points, rate-limited via `RateLimitPolicy.BIRTHDAY`. Added generic `common/ApiException` (status+code+message) for business-rule rejections, reused by future earn/redeem phases
-11. Phase 5 QR earn endpoint — next code work
+11. ✅ Phase 5 QR earn endpoint — `loyalty/LoyaltyController` (`POST /api/v1/loyalty/earn`) + `loyalty/LoyaltyService` + `loyalty/EarnCodeService`. Wraps `IdempotencyService.execute(...)`, validates code format/existence/expiry/used-status, enforces 30-min visit cooldown, burns the code and grants its stored points atomically, rate-limited via `RateLimitPolicy.EARN` (BUSINESS_RULES §2, now IMPLEMENTED)
+12. Phase 6 redemption endpoint (`POST /api/v1/rewards/redeem`) — next code work
 
 ---
 

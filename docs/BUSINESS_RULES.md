@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-29
 **Owner:** Solo dev
-**Status:** §1 LOCKED. §2 + §3 are TODO — block Phase 5 + 6.
+**Status:** §1 + §2 LOCKED & IMPLEMENTED. §3 partially implemented (§3.7 birthday only) — remaining §3 blocks Phase 6.
 
 ---
 
@@ -51,9 +51,13 @@ idempotency/{key}
 
 ---
 
-## 2. QR Earn Rules (LOCKED 2026-06-30)
+## 2. QR Earn Rules (LOCKED 2026-06-30 — IMPLEMENTED 2026-07-03)
 
 These are the MVP defaults. Owner can override per rule by amending this file and bumping the lock date.
+
+Implemented by `loyalty/LoyaltyController` (`POST /api/v1/loyalty/earn`) + `loyalty/LoyaltyService` +
+`loyalty/EarnCodeService`, wrapped in `IdempotencyService.execute(...)` and rate-limited via
+`RateLimitPolicy.EARN`. Every rule below (§2.1–§2.8) matches the shipped code exactly.
 
 ### 2.1 Points per earn code
 
