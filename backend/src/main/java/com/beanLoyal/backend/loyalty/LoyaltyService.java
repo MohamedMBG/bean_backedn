@@ -1,5 +1,6 @@
 package com.beanLoyal.backend.loyalty;
 
+import com.beanLoyal.backend.activity.ActivityService;
 import com.beanLoyal.backend.common.ApiException;
 import com.beanLoyal.backend.common.ApiResponse;
 import com.beanLoyal.backend.common.IdempotencyService;
@@ -49,11 +50,14 @@ public class LoyaltyService {
 
     private final Firestore firestore;
     private final EarnCodeService earnCodeService;
+    private final ActivityService activityService;
     private final Clock clock;
 
-    public LoyaltyService(Firestore firestore, EarnCodeService earnCodeService, Clock clock) {
+    public LoyaltyService(Firestore firestore, EarnCodeService earnCodeService,
+                          ActivityService activityService, Clock clock) {
         this.firestore = firestore;
         this.earnCodeService = earnCodeService;
+        this.activityService = activityService;
         this.clock = clock;
     }
 
@@ -108,6 +112,9 @@ public class LoyaltyService {
         updates.put("visits", totalVisits);
         updates.put("lastEarnAt", FieldValue.serverTimestamp());
         transaction.update(userRef, updates);
+
+        // Canonical activity feed entry (§11) — write-only, after every read/update in the transaction.
+        activityService.record(transaction, uid, ActivityService.TYPE_EARN, validCode.points(), code, totalPoints);
 
         EarnResponse body = new EarnResponse(validCode.points(), totalPoints, totalVisits);
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(body));

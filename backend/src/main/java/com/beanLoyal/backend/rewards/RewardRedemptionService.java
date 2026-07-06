@@ -1,5 +1,6 @@
 package com.beanLoyal.backend.rewards;
 
+import com.beanLoyal.backend.activity.ActivityService;
 import com.beanLoyal.backend.common.ApiException;
 import com.beanLoyal.backend.common.ApiResponse;
 import com.beanLoyal.backend.common.IdempotencyService;
@@ -46,11 +47,12 @@ import java.util.concurrent.ExecutionException;
  * truth (over a pointer field on the user doc) so a Phase 7 cancel/complete/expire path that forgets
  * to clear a pointer cannot permanently lock a user out of redeeming.
  *
- * <h2>No activity log yet</h2>
- * ponytail: the canonical activity schema is Phase 8 (not started). The {@code redeem_codes} doc
- * fully records this redemption for now; the user-facing activity entry (and the matching
- * cancel/expire entries §3.2/§3.3 reference) land together in Phase 8 rather than guessing a schema
- * here that would then be rewritten.
+ * <h2>Activity log</h2>
+ * On success this appends a canonical {@code users/{uid}/activities} entry ({@code type=redeem},
+ * {@code pointsDelta=-cost}, {@code refId=code}) via {@link ActivityService} inside the same
+ * transaction (Phase 8), so the feed entry commits atomically with the balance debit and is covered
+ * by the idempotency replay guard. The matching cancel/expire refund entries (§3.2/§3.3) are written
+ * by {@link RedeemCodeService}.
  */
 @Service
 public class RewardRedemptionService {
@@ -60,11 +62,14 @@ public class RewardRedemptionService {
 
     private final Firestore firestore;
     private final RedeemCodeService redeemCodeService;
+    private final ActivityService activityService;
     private final Clock clock;
 
-    public RewardRedemptionService(Firestore firestore, RedeemCodeService redeemCodeService, Clock clock) {
+    public RewardRedemptionService(Firestore firestore, RedeemCodeService redeemCodeService,
+                                   ActivityService activityService, Clock clock) {
         this.firestore = firestore;
         this.redeemCodeService = redeemCodeService;
+        this.activityService = activityService;
         this.clock = clock;
     }
 
@@ -143,6 +148,8 @@ public class RewardRedemptionService {
                 firestore.collection(RedeemCode.COLLECTION).document(code),
                 RedeemCode.pendingDoc(uid, rewardId, rewardSnap.getString("name"), cost, now, expiresAt));
         transaction.update(userRef, "points", newBalance);
+        // Canonical activity feed entry (§11): a redemption debits the balance, so pointsDelta is negative.
+        activityService.record(transaction, uid, ActivityService.TYPE_REDEEM, -cost, code, newBalance);
 
         RedeemResponse body = new RedeemResponse(code, rewardId, cost, newBalance, expiresAt.toEpochMilli());
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(body));
