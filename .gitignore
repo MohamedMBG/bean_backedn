@@ -3,9 +3,6 @@
 *.iml
 .vscode/
 
-# Claude Code local settings
-.claude/
-
 # Build artifacts (also covered under backend/.gitignore but belt + suspenders)
 build/
 out/

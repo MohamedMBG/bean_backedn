@@ -214,7 +214,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 2 | Firestore client `@Bean` | ✅ `FirebaseAdminConfig.firestore()` — reuses same service account credentials as `firebaseAuth()`, unblocks Phase 4+ Firestore writes |
 | 2 | Idempotency foundation | ✅ `IdempotencyService.execute(...)` runs business logic inside the same Firestore transaction as the `idempotency/{key}` record write (atomic per BUSINESS_RULES §1). `IdempotencyException` → 400 `IDEMPOTENCY_KEY_REQUIRED` / 409 `IDEMPOTENCY_KEY_REUSED` via `GlobalExceptionHandler`. Unit test on sha256 key derivation green. Endpoints opt-in Phase 4+ |
 | 2 | Render deploy of skeleton + `/health` | ⬜ |
-| 2 | Local AI agent documentation/progress instructions | ✅ `AGENTS.md` + `CLAUDE.md` created, ignored by Git, and updated with documentation + planning rules on 2026-06-29 |
+| 2 | Local contributor documentation/progress instructions | ✅ Local instruction files created, ignored by Git, and updated with documentation + planning rules on 2026-06-29 |
 | 3 | Android `BuildConfig.BACKEND_BASE_URL` | ⬜ |
 | 3 | Android API DTO package | ⬜ |
 | 3 | Authenticated request helper | ⬜ |
