@@ -31,6 +31,11 @@ final class RedeemCode {
     static final String STATUS = "status";
     static final String CREATED_AT = "createdAt";
     static final String EXPIRES_AT = "expiresAt";
+    /**
+     * Instant the code left {@code pending} (set on complete/cancel/expire), so an admin/support
+     * lookup on the code doc itself is self-describing without joining the activity/audit logs.
+     */
+    static final String TERMINAL_AT = "terminalAt";
 
     /** The full lifecycle of a redeem code (§3): created {@code pending}, then one terminal state. */
     static final String STATUS_PENDING = "pending";

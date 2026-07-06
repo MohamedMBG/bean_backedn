@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-29
 **Owner:** Solo dev
-**Status:** §1 + §2 LOCKED & IMPLEMENTED. §3 redeem creation (§3.1, §3.4, §3.5, §3.6, §3.8) + §3.7 birthday IMPLEMENTED (Phase 6). §3.2/§3.3 refund-on-cancel/expiry remain for Phase 7.
+**Status:** §1 + §2 LOCKED & IMPLEMENTED. §3 fully IMPLEMENTED: redeem creation (§3.1, §3.4, §3.5, §3.6, §3.8) + birthday (§3.7) in Phase 6; refund-on-cancel (§3.2), refund-on-expiry (§3.3), cashier complete + expiration job in Phase 7. Activity feed (§11) canonical schema locked in `ActivityService`, written by cancel/expire; earn/redeem/birthday adoption = Phase 8.
 
 ---
 
