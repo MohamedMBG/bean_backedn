@@ -1,5 +1,6 @@
 package com.beanLoyal.backend.rewards;
 
+import com.beanLoyal.backend.activity.ActivityService;
 import com.beanLoyal.backend.common.ApiException;
 import com.beanLoyal.backend.common.ApiResponse;
 import com.beanLoyal.backend.common.IdempotencyService;
@@ -60,11 +61,14 @@ public class RewardRedemptionService {
 
     private final Firestore firestore;
     private final RedeemCodeService redeemCodeService;
+    private final ActivityService activityService;
     private final Clock clock;
 
-    public RewardRedemptionService(Firestore firestore, RedeemCodeService redeemCodeService, Clock clock) {
+    public RewardRedemptionService(Firestore firestore, RedeemCodeService redeemCodeService,
+                                   ActivityService activityService, Clock clock) {
         this.firestore = firestore;
         this.redeemCodeService = redeemCodeService;
+        this.activityService = activityService;
         this.clock = clock;
     }
 
@@ -143,6 +147,8 @@ public class RewardRedemptionService {
                 firestore.collection(RedeemCode.COLLECTION).document(code),
                 RedeemCode.pendingDoc(uid, rewardId, rewardSnap.getString("name"), cost, now, expiresAt));
         transaction.update(userRef, "points", newBalance);
+        // Canonical activity feed entry (§11): a redemption debits the balance, so pointsDelta is negative.
+        activityService.record(transaction, uid, ActivityService.TYPE_REDEEM, -cost, code, newBalance);
 
         RedeemResponse body = new RedeemResponse(code, rewardId, cost, newBalance, expiresAt.toEpochMilli());
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(body));

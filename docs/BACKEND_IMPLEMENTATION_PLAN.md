@@ -225,7 +225,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 7 | `POST /api/cashier/redeem/complete` | ✅ `CashierController` (`@PreAuthorize hasRole('CASHIER')`) + `RedeemCodeService.complete` — audit-logged, expiry re-check (§3.9/§3.1) |
 | 7 | Expiration job | ✅ `jobs/ExpiredRedemptionJob` — `@Scheduled` 5-min sweep, per-code transaction, refund-on-expiry (§3.3); needs `redeem_codes(status,expiresAt)` index |
 | 7 | Cashier role | ✅ enforced via `@PreAuthorize` (role mapping already in `FirebaseAuthFilter`, §5b) |
-| 8 | Activity canonical schema | ⏳ `activity/ActivityService` created + canonical shape LOCKED; written by cancel/expire. Earn/redeem/birthday adoption + read endpoint = Phase 8 |
+| 8 | Activity canonical schema | ✅ `activity/ActivityService` canonical shape adopted feed-wide: earn (`+pts`), redeem (`-cost`), birthday (`+50`), cancel/expire (`+cost`) all write `users/{uid}/activities/{id}` in-transaction. No backend read endpoint — the client reads its own feed directly from Firestore (Phase 1 rules permit owner read); admin reads via Phase 10 |
 | 9 | Device registration cleanup | ⬜ |
 | 10 | Admin endpoints | ⬜ |
 | 11 | Backend tests | ⬜ |
