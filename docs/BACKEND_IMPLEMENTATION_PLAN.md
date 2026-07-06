@@ -104,15 +104,17 @@ backend/src/main/java/com/beanLoyal/backend/
 │   ├── LoyaltyService.java                  ✅ Phase 5
 │   └── EarnCodeService.java                 ✅ Phase 5
 ├── cashier/
-│   └── CashierController.java               ⏳ Phase 7
+│   └── CashierController.java               ✅ Phase 7
+├── activity/
+│   └── ActivityService.java                 ✅ Phase 7 (canonical schema; adopted feed-wide Phase 8)
 ├── admin/
 │   └── AdminController.java                 ⏳ Phase 10
 ├── audit/
-│   └── AuditService.java                    ⏳ Phase 5+
+│   └── AuditService.java                    ✅ Phase 7 (cashier complete); admin actions Phase 10
 ├── push/
 │   └── DeviceController.java                ⏳ Phase 9
 └── jobs/
-    └── ExpiredRedemptionJob.java            ⏳ Phase 7
+    └── ExpiredRedemptionJob.java            ✅ Phase 7
 ```
 
 ---
@@ -219,11 +221,11 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 4 | `POST /api/rewards/birthday` | ✅ `RewardsController` + `BirthdayRewardService` — idempotency-guarded, rate-limited, fixed 50pt grant (BUSINESS_RULES §3.7) |
 | 5 | `POST /api/loyalty/earn` | ✅ `LoyaltyController` + `LoyaltyService` + `EarnCodeService` — idempotency-guarded, rate-limited (`RateLimitPolicy.EARN`), 30-min visit cooldown, single-use codes (BUSINESS_RULES §2) |
 | 6 | `POST /api/rewards/redeem` | ✅ `RewardsController` + `RewardRedemptionService` + `RedeemCodeService` — idempotency-guarded, rate-limited (`RateLimitPolicy.REDEEM`), 1-pending-per-user, 15-min pending TTL, points deducted atomically (BUSINESS_RULES §3). Needs Firestore composite index on `redeem_codes(uid,status)` at Phase 1 deploy |
-| 7 | `POST /api/rewards/redeem/cancel` | ⬜ |
-| 7 | `POST /api/cashier/redeem/complete` | ⬜ |
-| 7 | Expiration job | ⬜ |
-| 7 | Cashier role | ⬜ |
-| 8 | Activity canonical schema | ⬜ |
+| 7 | `POST /api/rewards/redeem/cancel` | ✅ `RewardsController.cancelRedeem` + `RedeemCodeService.cancel` — refund-on-cancel (§3.2), idempotency-guarded, ownership-checked |
+| 7 | `POST /api/cashier/redeem/complete` | ✅ `CashierController` (`@PreAuthorize hasRole('CASHIER')`) + `RedeemCodeService.complete` — audit-logged, expiry re-check (§3.9/§3.1) |
+| 7 | Expiration job | ✅ `jobs/ExpiredRedemptionJob` — `@Scheduled` 5-min sweep, per-code transaction, refund-on-expiry (§3.3); needs `redeem_codes(status,expiresAt)` index |
+| 7 | Cashier role | ✅ enforced via `@PreAuthorize` (role mapping already in `FirebaseAuthFilter`, §5b) |
+| 8 | Activity canonical schema | ⏳ `activity/ActivityService` created + canonical shape LOCKED; written by cancel/expire. Earn/redeem/birthday adoption + read endpoint = Phase 8 |
 | 9 | Device registration cleanup | ⬜ |
 | 10 | Admin endpoints | ⬜ |
 | 11 | Backend tests | ⬜ |
