@@ -1,0 +1,24 @@
+{
+  "//": "Composite indexes required by backend Firestore queries. Single-field equality/order queries (admin user search by email/phone, activities orderBy createdAt) use Firestore's automatic single-field indexes and are not listed here. Deploy with: firebase deploy --only firestore:indexes",
+  "indexes": [
+    {
+      "//": "RewardRedemptionService §3.4 one-pending-per-user check: redeem_codes where uid == caller AND status == 'pending'.",
+      "collectionGroup": "redeem_codes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "uid", "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "//": "ExpiredRedemptionJob §3.1 sweep: redeem_codes where status == 'pending' AND expiresAt < now.",
+      "collectionGroup": "redeem_codes",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "expiresAt", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}
