@@ -228,7 +228,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 8 | Activity canonical schema | ✅ `activity/ActivityService` canonical shape adopted feed-wide: earn (`+pts`), redeem (`-cost`), birthday (`+50`), cancel/expire (`+cost`) all write `users/{uid}/activities/{id}` in-transaction. No backend read endpoint — the client reads its own feed directly from Firestore (Phase 1 rules permit owner read); admin reads via Phase 10 |
 | 9 | Device registration cleanup | ⬜ |
 | 10 | Admin endpoints | ✅ `admin/AdminController` (`@PreAuthorize hasRole('ADMIN')`) + `AdminService` — earn-code create/revoke (makes Phase 5 usable), user search (email/phone), user activity, points-adjustment (writes `adjust` activity + audit), audit list. Writes idempotency-guarded + audit-logged via `AuditService`; reads capped. `EarnCodeService.create/revoke` added |
-| 11 | Backend tests | ⬜ |
+| 11 | Backend tests | ⏳ pure-logic unit tests green (idempotency key, rate-limit, cooldown, redeem-code shape/TTL, device validation, birthday, admin, **`ClientIpResolver` last-hop anti-spoof**). Firestore transaction paths (earn/redeem/cancel/complete/expire) deferred to Firebase-emulator integration tests — env has no creds |
 | 11 | Android tests | ⬜ |
 | 11 | Manual QA pass | ⬜ |
 | 12 | Render staging deploy | ⬜ |
