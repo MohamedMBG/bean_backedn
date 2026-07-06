@@ -50,6 +50,8 @@ public class ActivityService {
     public static final String TYPE_CANCEL = "cancel";
     public static final String TYPE_EXPIRE = "expire";
     public static final String TYPE_BIRTHDAY = "birthday";
+    /** Admin manual points adjustment (Phase 10); {@code pointsDelta} may be negative. */
+    public static final String TYPE_ADJUST = "adjust";
 
     private final Firestore firestore;
 

@@ -1,5 +1,6 @@
 package com.beanLoyal.backend.rewards;
 
+import com.beanLoyal.backend.activity.ActivityService;
 import com.beanLoyal.backend.common.ApiException;
 import com.beanLoyal.backend.common.ApiResponse;
 import com.beanLoyal.backend.common.IdempotencyService;
@@ -52,9 +53,11 @@ public class BirthdayRewardService {
     static final long BIRTHDAY_REWARD_POINTS = 50L;
 
     private final Firestore firestore;
+    private final ActivityService activityService;
 
-    public BirthdayRewardService(Firestore firestore) {
+    public BirthdayRewardService(Firestore firestore, ActivityService activityService) {
         this.firestore = firestore;
+        this.activityService = activityService;
     }
 
     /**
@@ -106,6 +109,9 @@ public class BirthdayRewardService {
         claimDoc.put("claimedAt", FieldValue.serverTimestamp());
         transaction.set(claimRef, claimDoc);
         transaction.update(userRef, "points", totalPoints);
+        // Canonical activity feed entry (§11); refId ties back to the birthday_claims doc.
+        activityService.record(transaction, uid, ActivityService.TYPE_BIRTHDAY,
+                BIRTHDAY_REWARD_POINTS, uid + "_" + year, totalPoints);
 
         BirthdayClaimResponse body = new BirthdayClaimResponse(BIRTHDAY_REWARD_POINTS, totalPoints, year);
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(body));

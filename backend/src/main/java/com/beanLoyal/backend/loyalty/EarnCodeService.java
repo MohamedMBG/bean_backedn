@@ -9,16 +9,20 @@ import com.google.cloud.firestore.Transaction;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
 /**
- * Reads, validates, and burns QR earn codes per {@code docs/BUSINESS_RULES.md §2}.
+ * Reads, validates, burns, creates, and revokes QR earn codes per {@code docs/BUSINESS_RULES.md §2}.
  * <p>
- * Invoked from {@link LoyaltyService#earn} inside the caller-supplied Firestore
- * {@link Transaction} shared with {@link com.beanLoyal.backend.common.IdempotencyService} — every
- * read/write here MUST use that transaction, never a nested {@code runTransaction}, so a retried
- * scan can never burn a code twice even before the idempotency record is consulted.
+ * The scan-time paths ({@link #readValid}, {@link #burn}) run inside the earn transaction shared with
+ * {@link com.beanLoyal.backend.common.IdempotencyService}. The admin lifecycle paths
+ * ({@link #create}, {@link #revoke}) run inside the admin endpoint's idempotency transaction
+ * (Phase 10). Every read/write MUST use the caller-supplied transaction, never a nested one.
  * <p>
  * Firestore collection: {@code earn_codes/{code}} — the document id IS the code value (§2.5), so
  * lookup is a direct {@code document(code)} reference, no query needed.
@@ -36,6 +40,19 @@ public class EarnCodeService {
     /** Fixed earn code length (§2.5). */
     static final int CODE_LENGTH = 10;
 
+    /** Earn code lifetime from creation (§2.2). */
+    static final Duration CODE_TTL = Duration.ofHours(24);
+
+    static final String STATUS = "status";
+    static final String POINTS = "points";
+    static final String CREATED_AT = "createdAt";
+    static final String EXPIRES_AT = "expiresAt";
+    static final String CREATED_BY = "createdBy";
+    static final String STATUS_ACTIVE = "active";
+    static final String STATUS_USED = "used";
+    public static final String STATUS_REVOKED = "revoked";
+
+    private final SecureRandom random = new SecureRandom();
     private final Firestore firestore;
 
     public EarnCodeService(Firestore firestore) {
@@ -44,6 +61,9 @@ public class EarnCodeService {
 
     /** Firestore reference + granted points for a code that passed all validity checks. */
     record ValidatedCode(DocumentReference ref, long points) {}
+
+    /** A freshly created earn code + its computed expiry, returned to the admin endpoint. */
+    public record CreatedCode(String code, Instant expiresAt) {}
 
     /**
      * Validate a code's shape against the §2.5 alphabet/length rule. Pure function, no Firestore
@@ -92,19 +112,19 @@ public class EarnCodeService {
             throw new ApiException(HttpStatus.NOT_FOUND, "EARN_CODE_NOT_FOUND", "Earn code not found");
         }
 
-        Timestamp expiresAt = snap.getTimestamp("expiresAt");
+        Timestamp expiresAt = snap.getTimestamp(EXPIRES_AT);
         // Missing expiresAt is a malformed record — treat as expired rather than trust it (same
         // fail-safe default IdempotencyService uses for its own expiresAt field).
         if (expiresAt == null || !now.isBefore(expiresAt.toDate().toInstant())) {
             throw new ApiException(HttpStatus.GONE, "EARN_CODE_EXPIRED", "Earn code has expired");
         }
 
-        String status = snap.getString("status");
-        if (!"active".equals(status)) {
+        String status = snap.getString(STATUS);
+        if (!STATUS_ACTIVE.equals(status)) {
             throw new ApiException(HttpStatus.CONFLICT, "EARN_CODE_ALREADY_USED", "Earn code already used");
         }
 
-        Long points = snap.getLong("points");
+        Long points = snap.getLong(POINTS);
         if (points == null || points <= 0) {
             throw new IllegalStateException("earn_codes/" + code + " missing a valid points field");
         }
@@ -121,6 +141,70 @@ public class EarnCodeService {
      * @param ref         reference returned by a prior {@link #readValid} call in the same transaction.
      */
     void burn(Transaction transaction, DocumentReference ref) {
-        transaction.update(ref, "status", "used");
+        transaction.update(ref, STATUS, STATUS_USED);
+    }
+
+    /**
+     * Create a new {@code active} earn code worth {@code points}, inside the admin endpoint's
+     * transaction (§2.1/§2.2). The generated code is the document id.
+     * <p>
+     * ponytail: no collision-retry loop — at 32^10 the birthday-bound collision probability is
+     * negligible for MVP volumes, and a (practically impossible) collision would overwrite one stale
+     * doc via {@code set}. Add a read-then-retry loop only if code volume ever approaches that keyspace.
+     *
+     * @param transaction live Firestore transaction from the admin idempotency wrapper.
+     * @param points      positive point value stored on the code (validated by the caller).
+     * @param actorUid    admin uid, recorded as {@code createdBy}.
+     * @param now         current instant; {@code expiresAt = now + 24h}.
+     * @return the created code and its expiry.
+     */
+    public CreatedCode create(Transaction transaction, long points, String actorUid, Instant now) {
+        String code = generateCode();
+        Instant expiresAt = now.plus(CODE_TTL);
+        Map<String, Object> doc = new LinkedHashMap<>();
+        doc.put(POINTS, points);
+        doc.put(STATUS, STATUS_ACTIVE);
+        doc.put(CREATED_AT, toTimestamp(now));
+        doc.put(EXPIRES_AT, toTimestamp(expiresAt));
+        doc.put(CREATED_BY, actorUid);
+        transaction.set(firestore.collection("earn_codes").document(code), doc);
+        return new CreatedCode(code, expiresAt);
+    }
+
+    /**
+     * Revoke an {@code active} earn code (admin, §2). A code that is already used/revoked/expired
+     * cannot be revoked.
+     *
+     * @param transaction live Firestore transaction from the admin idempotency wrapper.
+     * @param code        the earn code to revoke.
+     * @throws ApiException         404 {@code EARN_CODE_NOT_FOUND} if no doc; 409
+     *                              {@code EARN_CODE_NOT_ACTIVE} if the code is not currently active.
+     * @throws ExecutionException   propagated from the Firestore {@code get()}.
+     * @throws InterruptedException propagated from the Firestore {@code get()}.
+     */
+    public void revoke(Transaction transaction, String code) throws ExecutionException, InterruptedException {
+        DocumentReference ref = firestore.collection("earn_codes").document(code);
+        DocumentSnapshot snap = transaction.get(ref).get();
+        if (!snap.exists()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "EARN_CODE_NOT_FOUND", "Earn code not found");
+        }
+        if (!STATUS_ACTIVE.equals(snap.getString(STATUS))) {
+            throw new ApiException(HttpStatus.CONFLICT, "EARN_CODE_NOT_ACTIVE",
+                    "Only an active earn code can be revoked");
+        }
+        transaction.update(ref, STATUS, STATUS_REVOKED);
+    }
+
+    /** Generate a fresh {@value #CODE_LENGTH}-character code from {@link #CODE_ALPHABET} (§2.5). */
+    String generateCode() {
+        StringBuilder sb = new StringBuilder(CODE_LENGTH);
+        for (int i = 0; i < CODE_LENGTH; i++) {
+            sb.append(CODE_ALPHABET.charAt(random.nextInt(CODE_ALPHABET.length())));
+        }
+        return sb.toString();
+    }
+
+    private static Timestamp toTimestamp(Instant instant) {
+        return Timestamp.ofTimeSecondsAndNanos(instant.getEpochSecond(), instant.getNano());
     }
 }
