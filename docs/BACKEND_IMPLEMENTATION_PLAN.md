@@ -195,9 +195,9 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 0 | Per-env Spring profiles + Firebase project IDs | ✅ (config wired; user must create 3 Firebase projects + supply credentials) |
 | 0 | Spring Boot skeleton | ✅ |
 | 0 | Backend location chosen | ✅ |
-| 1 | Firestore rules locked | ⬜ |
-| 1 | API key restrictions | ⬜ |
-| 1 | Rules tests / verification | ⬜ |
+| 1 | Firestore rules locked | ✅ `firestore.rules` — client trust boundary (own profile read + non-economy write, own activity read, catalog read; all backend-only collections denied). `firestore.indexes.json` = the two `redeem_codes` composite indexes. `firebase.json` wires both. **Deploy = owner action:** `firebase deploy --only firestore:rules,firestore:indexes` |
+| 1 | API key restrictions | ⬜ owner console action (restrict Android API key to app + enabled APIs) |
+| 1 | Rules tests / verification | ⏳ rules authored; emulator test suite (`@firebase/rules-unit-testing`) deferred — needs Node/emulator, not run in this backend build |
 | 2 | Firebase Admin SDK dep | ✅ |
 | 2 | `FirebaseAdminConfig` | ✅ |
 | 2 | `ApiError` + `ApiResponse` | ✅ |

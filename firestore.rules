@@ -1,0 +1,75 @@
+rules_version = '2';
+
+// BeanLoyal Firestore security rules.
+//
+// These rules constrain the CLIENT (mobile app via the Firebase client SDK) only. The backend uses
+// the Firebase Admin SDK, which bypasses security rules entirely, so every backend-owned write still
+// works regardless of what is denied here. The rules exist to enforce the trust boundary
+// (BACKEND_IMPLEMENTATION_PLAN.md §11/§13): the Android app may READ its own profile + activity feed
+// and the public catalogs, and may WRITE only non-economy profile fields — never points, visits,
+// verification status, codes, activity logs, devices, or audit records.
+//
+// Default is deny: any path/operation not explicitly allowed below is rejected for the client.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Economy fields the client must NEVER write (backend-owned). Used to reject a profile update
+    // that tries to smuggle a balance/visit/verification change past the field allow-list.
+    function noEconomyFields() {
+      return !request.resource.data.keys().hasAny(
+        ['points', 'visits', 'isVerified', 'lastEarnAt']
+      );
+    }
+
+    // Only these keys may change on a client-initiated profile update. Any other changed key
+    // (including the economy fields above) fails the write.
+    function onlyProfileFieldsChanged() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+        ['displayName', 'name', 'birthday', 'phone', 'email', 'photoUrl', 'fcmOptIn']
+      );
+    }
+
+    match /users/{uid} {
+      // Owner reads own profile; backend (Admin SDK) reads anyone.
+      allow read: if isOwner(uid);
+      // Signup may create the doc, but never seed economy fields.
+      allow create: if isOwner(uid) && noEconomyFields();
+      // Profile edits only; economy fields stay backend-owned.
+      allow update: if isOwner(uid) && onlyProfileFieldsChanged();
+      allow delete: if false;
+
+      // Activity feed: owner reads their own history; only the backend writes it.
+      match /activities/{activityId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+
+    // Client-readable catalog read models (backend writes via Admin SDK).
+    match /menu_items/{itemId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /rewards_catalog/{rewardId} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+
+    // Fully backend-owned collections: no client read or write at all.
+    // (The mobile app receives redeem/earn codes in API responses, so it never needs to read these.)
+    match /earn_codes/{codeId}       { allow read, write: if false; }
+    match /redeem_codes/{codeId}     { allow read, write: if false; }
+    match /birthday_claims/{claimId} { allow read, write: if false; }
+    match /devices/{deviceId}        { allow read, write: if false; }
+    match /audit/{auditId}           { allow read, write: if false; }
+    match /idempotency/{key}         { allow read, write: if false; }
+  }
+}
