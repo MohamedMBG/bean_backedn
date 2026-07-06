@@ -275,6 +275,7 @@ Bucket4j in-memory. Per-IP and per-uid where authenticated.
 | `POST /api/v1/rewards/birthday` | 20/min | 3/day |
 | `POST /api/v1/cashier/**` | 60/min | 60/min |
 | `POST /api/v1/admin/**` | 60/min | 60/min |
+| `POST /api/v1/push/registerDevice` | 30/min | 10/min |
 | `GET /health` | unlimited | n/a |
 
 429 response = `ApiError(code: "RATE_LIMITED", message: "Too many requests")` + `Retry-After` header.
@@ -358,3 +359,58 @@ MVP has 3 categories: regular / cashier / admin. A role array adds set-intersect
 | 2026-06-30 | Locked §3 redemption rules | Unblocked issues #13/#14/#15/#11 (redeem, cancel, cashier complete, birthday); MVP defaults chosen, owner overridable |
 | 2026-06-30 | Locked §5b roles/claims model | Single-role string, `ROLE_<UPPER>` authority mapping; unblocks #15 (cashier complete) + #20 (admin endpoints) |
 | 2026-07-02 | Locked §3.7 birthday reward = fixed 50 points | §3.7 said "grant reward" without specifying what/how much; owner chose a direct points grant over a catalog-reward redemption to avoid coupling Phase 4 to the Phase 6 catalog |
+| 2026-07-06 | Locked §8 device registration (reassign ownership, skip idempotency) | Device id is a private per-install id; reassign supports logout→login on a shared/resold device, and the upsert is naturally idempotent so no ledger is needed |
+
+---
+
+## 8. Device Registration (LOCKED 2026-07-06 — IMPLEMENTED Phase 9)
+
+Implemented by `push/DeviceController` (`POST /api/v1/push/registerDevice`) + `push/DeviceService` +
+`push/Device`. Registration only — FCM *send* is out of scope.
+
+### 8.1 Document keying
+
+**Doc id = client-supplied stable per-install `deviceId`. NOT a hash of the FCM token.**
+
+- FCM tokens rotate (reinstall/restore/periodic refresh). Hashing the token would mint a new
+  `devices/{id}` doc on every rotation, orphaning the old one and forcing a TTL-cleanup job.
+- A stable `deviceId` gives exactly one doc per device, so re-registration overwrites `fcmToken` +
+  `lastSeenAt` in place. No orphan accumulation → no cleanup job this phase.
+- Fields: `uid`, `fcmToken`, `platform` (`android|ios|web`), `lastSeenAt` (timestamp), `disabled` (boolean).
+
+### 8.2 Ownership
+
+**Reassign / last-writer-wins via `set(SetOptions.merge())`.**
+
+- `uid` is overwritten to the caller on every registration — the legitimate "log out A, log in B on
+  the same/resold device" flow. A hard reject would permanently orphan that device.
+- `deviceId` is private per-install (app-private storage, only sent to the backend over TLS), so an
+  attacker cannot enumerate a victim's id. Residual risk (attacker already knows a victim's id) is
+  accepted; switch to a transactional read + reject-on-mismatch if that changes.
+
+### 8.3 Idempotency & transaction
+
+**Idempotency SKIPPED (naturally idempotent); no transaction (single-doc set is atomic).**
+
+- §1 lists this route as idempotency-optional. Replaying the same request yields the same terminal
+  doc; only `lastSeenAt` advances (harmless). No economy invariant a duplicate could corrupt.
+- An `Idempotency-Key` header, if sent, is ignored. The single-document `set` commits atomically on
+  its own — no `IdempotencyService` transaction.
+
+### 8.4 Re-enable + redaction
+
+- Registration always writes `disabled=false`, re-enabling a device a future send path flagged dead.
+- The `fcmToken` is NEVER logged (plan §13/§14).
+
+### 8.5 Error code reference
+
+| Code | HTTP | Trigger |
+|---|---|---|
+| `DEVICE_ID_INVALID` | 400 | `deviceId` null/blank, >128 chars, outside `[A-Za-z0-9_-]`, or reserved `__…__` |
+| `FCM_TOKEN_INVALID` | 400 | `fcmToken` null/blank or >4096 chars |
+| `INVALID_PLATFORM` | 400 | `platform` (lower-cased) not in `{android, ios, web}` |
+| `RATE_LIMITED` | 429 | `RateLimitPolicy.REGISTER_DEVICE` bucket hit (§4) |
+
+**Open (owner decision):** no unregister/logout route yet — after logout a device doc lingers until
+the next registration, so a logged-out user may keep receiving pushes. Add a disable-on-logout path
+if that matters.

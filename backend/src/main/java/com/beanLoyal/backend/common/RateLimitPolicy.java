@@ -48,6 +48,18 @@ public record RateLimitPolicy(Bandwidth ipBandwidth, Bandwidth uidBandwidth) {
             perMinute(60)
     );
 
+    /**
+     * {@code POST /api/v1/push/registerDevice} — 30/min per IP, 10/min per UID.
+     * A distinct constant (not reusing {@link #EARN}) because {@code RateLimitService} keys buckets by
+     * policy reference identity — sharing {@code EARN} would let earn bursts drain the registration
+     * bucket. The 30/min IP envelope matches {@code EARN} so shared coffee-shop NAT wifi is not
+     * falsely throttled.
+     */
+    public static final RateLimitPolicy REGISTER_DEVICE = new RateLimitPolicy(
+            perMinute(30),
+            perMinute(10)
+    );
+
     private static Bandwidth perMinute(long count) {
         return Bandwidth.builder().capacity(count).refillGreedy(count, Duration.ofMinutes(1)).build();
     }

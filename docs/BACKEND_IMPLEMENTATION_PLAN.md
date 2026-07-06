@@ -110,7 +110,7 @@ backend/src/main/java/com/beanLoyal/backend/
 ├── audit/
 │   └── AuditService.java                    ⏳ Phase 5+
 ├── push/
-│   └── DeviceController.java                ⏳ Phase 9
+│   └── DeviceController.java                ✅ Phase 9 (+ DeviceService, Device, RegisterDevice DTOs)
 └── jobs/
     └── ExpiredRedemptionJob.java            ⏳ Phase 7
 ```
@@ -224,7 +224,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 7 | Expiration job | ⬜ |
 | 7 | Cashier role | ⬜ |
 | 8 | Activity canonical schema | ⬜ |
-| 9 | Device registration cleanup | ⬜ |
+| 9 | Device registration cleanup | ✅ `push/DeviceController` (`POST /api/v1/push/registerDevice`) + `DeviceService` + `Device` — stable-deviceId keying, reassign ownership, idempotency skipped (natural), `RateLimitPolicy.REGISTER_DEVICE`, fcmToken never logged (BUSINESS_RULES §8) |
 | 10 | Admin endpoints | ⬜ |
 | 11 | Backend tests | ⬜ |
 | 11 | Android tests | ⬜ |
