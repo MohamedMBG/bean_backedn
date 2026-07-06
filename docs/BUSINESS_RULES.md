@@ -2,13 +2,17 @@
 
 **Date:** 2026-06-29
 **Owner:** Solo dev
-**Status:** §1 LOCKED. §2 + §3 are TODO — block Phase 5 + 6.
+**Status:** §1 + §2 LOCKED & IMPLEMENTED. §3 redeem creation (§3.1, §3.4, §3.5, §3.6, §3.8) + §3.7 birthday IMPLEMENTED (Phase 6). §3.2/§3.3 refund-on-cancel/expiry remain for Phase 7.
 
 ---
 
-## 1. Idempotency Contract (LOCKED)
+## 1. Idempotency Contract (LOCKED — IMPLEMENTED 2026-07-02)
 
 Every state-mutating endpoint (POST/PUT/DELETE under `/api/v1`) MUST honor `Idempotency-Key` header.
+
+Implemented by `common/IdempotencyService.execute(...)`: endpoints pass their business logic as
+`TransactionalWork`; the record write and the economy write share one Firestore transaction.
+`IdempotencyException` maps to 400 `IDEMPOTENCY_KEY_REQUIRED` / 409 `IDEMPOTENCY_KEY_REUSED`.
 
 ### Header
 - Name: `Idempotency-Key`
@@ -47,9 +51,13 @@ idempotency/{key}
 
 ---
 
-## 2. QR Earn Rules (LOCKED 2026-06-30)
+## 2. QR Earn Rules (LOCKED 2026-06-30 — IMPLEMENTED 2026-07-03)
 
 These are the MVP defaults. Owner can override per rule by amending this file and bumping the lock date.
+
+Implemented by `loyalty/LoyaltyController` (`POST /api/v1/loyalty/earn`) + `loyalty/LoyaltyService` +
+`loyalty/EarnCodeService`, wrapped in `IdempotencyService.execute(...)` and rate-limited via
+`RateLimitPolicy.EARN`. Every rule below (§2.1–§2.8) matches the shipped code exactly.
 
 ### 2.1 Points per earn code
 
@@ -131,6 +139,7 @@ These are the MVP defaults. Owner can override per rule by amending this file an
 | `EARN_CODE_ALREADY_USED` | 409 | `status != active` |
 | `VISIT_COOLDOWN` | 429 | `now - lastEarnAt < 30 min` |
 | `EARN_CODE_INVALID_FORMAT` | 400 | Fails alphabet/length check |
+| `USER_NOT_FOUND` | 404 | `users/{uid}` doc does not exist (schema assumption violated — see `LoyaltyService` Javadoc) |
 | `RATE_LIMITED` | 429 | Bucket4j per-uid or per-IP cap hit (see §4) |
 
 ---
@@ -201,6 +210,17 @@ MVP defaults. Override per rule by amending this file and bumping the lock date.
 
 ### 3.7 Birthday reward — once per calendar year
 
+**Reward = fixed 50 points, credited to `users/{uid}.points` (locked 2026-07-02, owner decision).**
+
+- Not a catalog reward / redeem code — a direct points grant, same shape as an earn-code credit (§2.1).
+- Implemented by `rewards/BirthdayRewardService.claim(...)`, called from `POST /api/v1/rewards/birthday`
+  inside `IdempotencyService.execute(...)` — the points update and the `birthday_claims` write share
+  one Firestore transaction.
+
+**Schema assumption (not defined elsewhere at time of writing):** `users/{uid}.birthday` is stored as
+an ISO-8601 date string (`yyyy-MM-dd`). Chosen because the Feb-29 edge case below only makes sense as
+a month/day comparison. Revisit if the Android client uses a different representation.
+
 **Calendar year, keyed by `birthday_claims/{uid}_{year}`.**
 
 - Key derived from current calendar year in UTC
@@ -258,6 +278,8 @@ Bucket4j in-memory. Per-IP and per-uid where authenticated.
 | `GET /health` | unlimited | n/a |
 
 429 response = `ApiError(code: "RATE_LIMITED", message: "Too many requests")` + `Retry-After` header.
+
+**Client IP resolution:** Render terminates TLS at its own reverse proxy, so `request.getRemoteAddr()` is always Render, never the client. `ClientIpResolver` reads the LAST entry of `X-Forwarded-For` instead of the first — with exactly one trusted proxy (Render) in front of this backend, that last entry is the one Render itself appended (the real peer IP), while any earlier entries are attacker-settable by the client. Revisit this resolver if an additional CDN/WAF is ever placed in front of Render.
 
 ---
 
@@ -335,3 +357,4 @@ MVP has 3 categories: regular / cashier / admin. A role array adds set-intersect
 | 2026-06-30 | Locked §2 QR earn rules | Unblocked issue #12 (earn endpoint); MVP defaults chosen, owner overridable |
 | 2026-06-30 | Locked §3 redemption rules | Unblocked issues #13/#14/#15/#11 (redeem, cancel, cashier complete, birthday); MVP defaults chosen, owner overridable |
 | 2026-06-30 | Locked §5b roles/claims model | Single-role string, `ROLE_<UPPER>` authority mapping; unblocks #15 (cashier complete) + #20 (admin endpoints) |
+| 2026-07-02 | Locked §3.7 birthday reward = fixed 50 points | §3.7 said "grant reward" without specifying what/how much; owner chose a direct points grant over a catalog-reward redemption to avoid coupling Phase 4 to the Phase 6 catalog |
