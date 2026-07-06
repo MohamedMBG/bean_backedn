@@ -108,7 +108,7 @@ backend/src/main/java/com/beanLoyal/backend/
 ├── activity/
 │   └── ActivityService.java                 ✅ Phase 7 (canonical schema; adopted feed-wide Phase 8)
 ├── admin/
-│   └── AdminController.java                 ⏳ Phase 10
+│   └── AdminController.java                 ✅ Phase 10 (+ AdminService, request/response DTOs)
 ├── audit/
 │   └── AuditService.java                    ✅ Phase 7 (cashier complete); admin actions Phase 10
 ├── push/
@@ -227,7 +227,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 7 | Cashier role | ✅ enforced via `@PreAuthorize` (role mapping already in `FirebaseAuthFilter`, §5b) |
 | 8 | Activity canonical schema | ⏳ `activity/ActivityService` created + canonical shape LOCKED; written by cancel/expire. Earn/redeem/birthday adoption + read endpoint = Phase 8 |
 | 9 | Device registration cleanup | ⬜ |
-| 10 | Admin endpoints | ⬜ |
+| 10 | Admin endpoints | ✅ `admin/AdminController` (`@PreAuthorize hasRole('ADMIN')`) + `AdminService` — earn-code create/revoke (makes Phase 5 usable), user search (email/phone), user activity, points-adjustment (writes `adjust` activity + audit), audit list. Writes idempotency-guarded + audit-logged via `AuditService`; reads capped. `EarnCodeService.create/revoke` added |
 | 11 | Backend tests | ⬜ |
 | 11 | Android tests | ⬜ |
 | 11 | Manual QA pass | ⬜ |
