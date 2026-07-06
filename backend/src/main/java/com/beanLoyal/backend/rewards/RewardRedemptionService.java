@@ -3,7 +3,6 @@ package com.beanLoyal.backend.rewards;
 import com.beanLoyal.backend.common.ApiException;
 import com.beanLoyal.backend.common.ApiResponse;
 import com.beanLoyal.backend.common.IdempotencyService;
-import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.Firestore;
@@ -16,8 +15,6 @@ import org.springframework.stereotype.Service;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -122,9 +119,9 @@ public class RewardRedemptionService {
 
         // §3.4: at most one pending redeem code per user. Composite index on (uid, status) required —
         // see class Javadoc. Read must precede the writes below.
-        Query pendingQuery = firestore.collection("redeem_codes")
-                .whereEqualTo("uid", uid)
-                .whereEqualTo("status", "pending");
+        Query pendingQuery = firestore.collection(RedeemCode.COLLECTION)
+                .whereEqualTo(RedeemCode.UID, uid)
+                .whereEqualTo(RedeemCode.STATUS, RedeemCode.STATUS_PENDING);
         QuerySnapshot pendingSnap = transaction.get(pendingQuery).get();
         if (!pendingSnap.isEmpty()) {
             throw new ApiException(HttpStatus.CONFLICT, "REDEEM_PENDING_LIMIT",
@@ -142,23 +139,13 @@ public class RewardRedemptionService {
         String code = redeemCodeService.generateCode();
         long newBalance = balance - cost;
 
-        Map<String, Object> redeemDoc = new LinkedHashMap<>();
-        redeemDoc.put("uid", uid);
-        redeemDoc.put("rewardId", rewardId);
-        redeemDoc.put("rewardName", rewardSnap.getString("name"));
-        redeemDoc.put("cost", cost);
-        redeemDoc.put("status", "pending");
-        redeemDoc.put("createdAt", toTimestamp(now));
-        redeemDoc.put("expiresAt", toTimestamp(expiresAt));
-        transaction.set(firestore.collection("redeem_codes").document(code), redeemDoc);
+        transaction.set(
+                firestore.collection(RedeemCode.COLLECTION).document(code),
+                RedeemCode.pendingDoc(uid, rewardId, rewardSnap.getString("name"), cost, now, expiresAt));
         transaction.update(userRef, "points", newBalance);
 
         RedeemResponse body = new RedeemResponse(code, rewardId, cost, newBalance, expiresAt.toEpochMilli());
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(body));
-    }
-
-    private static Timestamp toTimestamp(Instant instant) {
-        return Timestamp.ofTimeSecondsAndNanos(instant.getEpochSecond(), instant.getNano());
     }
 
     private static long orZero(Long value) {
