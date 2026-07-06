@@ -15,7 +15,7 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
- * Rewards endpoints — Phase 4 birthday claim, Phase 6 redeem.
+ * Rewards endpoints — Phase 4 birthday claim, Phase 6 redeem, Phase 7 redeem cancel.
  * {@code @ApiV1} publishes every mapping under {@code /api/v1} via {@link com.beanLoyal.backend.config.WebMvcConfig}.
  * All routes require Firebase authentication (default-secured in {@code SecurityConfig}) plus a
  * caller-scoped Firebase UID resolved via {@link CurrentUser}.
@@ -26,15 +26,18 @@ public class RewardsController {
 
     private final BirthdayRewardService birthdayRewardService;
     private final RewardRedemptionService rewardRedemptionService;
+    private final RedeemCodeService redeemCodeService;
     private final IdempotencyService idempotencyService;
     private final RateLimitService rateLimitService;
 
     public RewardsController(BirthdayRewardService birthdayRewardService,
                              RewardRedemptionService rewardRedemptionService,
+                             RedeemCodeService redeemCodeService,
                              IdempotencyService idempotencyService,
                              RateLimitService rateLimitService) {
         this.birthdayRewardService = birthdayRewardService;
         this.rewardRedemptionService = rewardRedemptionService;
+        this.redeemCodeService = redeemCodeService;
         this.idempotencyService = idempotencyService;
         this.rateLimitService = rateLimitService;
     }
@@ -117,6 +120,45 @@ public class RewardsController {
                 idempotencyKey,
                 request,
                 transaction -> rewardRedemptionService.redeem(transaction, user.uid(), request.rewardId())
+        );
+    }
+
+    /**
+     * {@code POST /api/v1/rewards/redeem/cancel} — cancel the caller's own pending redeem code and
+     * refund its full points cost (BUSINESS_RULES.md §3.2).
+     * <p>
+     * Auth: Firebase ID token required (any role); ownership is enforced in the service
+     * ({@code REDEEM_NOT_OWNED} if the code belongs to another user). Idempotency:
+     * {@code Idempotency-Key} header REQUIRED (§1) — same key + same body replayed → cached response,
+     * no second refund, same key with a differing body → 409 {@code IDEMPOTENCY_KEY_REUSED}. Rate
+     * limit: {@link RateLimitPolicy#REDEEM} (shared with redeem-create; redemptions are rare so the
+     * shared per-UID bucket is ample) — 429 {@code RATE_LIMITED} on breach, checked before Firestore.
+     * <p>
+     * Request body: {@link CancelRequest}. Response: 200 {@code ApiResponse<CancelResponse>}. Business
+     * rejections (400 {@code BAD_REQUEST}, 404 {@code REDEEM_NOT_FOUND}, 403 {@code REDEEM_NOT_OWNED},
+     * 409 {@code REDEEM_NOT_PENDING}) come from {@link RedeemCodeService#cancel}. The refund flips the
+     * code to {@code cancelled}, credits the cost back, and writes a {@code cancel} activity entry
+     * atomically.
+     *
+     * @param user           verified caller identity; {@code user.uid()} must own the code.
+     * @param idempotencyKey raw {@code Idempotency-Key} header, or {@code null} if omitted.
+     * @param request        the pending redeem code to cancel.
+     * @param httpRequest    used to resolve the caller's IP for the rate-limit check.
+     * @return the JSON body produced by {@link IdempotencyService#execute}, fresh or replayed.
+     */
+    @PostMapping("/redeem/cancel")
+    public ResponseEntity<String> cancelRedeem(@AuthenticationPrincipal CurrentUser user,
+                                               @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                               @RequestBody CancelRequest request,
+                                               HttpServletRequest httpRequest) {
+        rateLimitService.check(RateLimitPolicy.REDEEM, ClientIpResolver.resolve(httpRequest), user.uid());
+
+        return idempotencyService.execute(
+                user.uid(),
+                httpRequest.getRequestURI(),
+                idempotencyKey,
+                request,
+                transaction -> redeemCodeService.cancel(transaction, user.uid(), request.code())
         );
     }
 }
