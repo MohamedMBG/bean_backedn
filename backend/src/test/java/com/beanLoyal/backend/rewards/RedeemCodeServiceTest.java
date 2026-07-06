@@ -2,20 +2,23 @@ package com.beanLoyal.backend.rewards;
 
 import org.junit.jupiter.api.Test;
 
+import java.time.Instant;
 import java.util.HashSet;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Covers {@link RedeemCodeService#generateCode}, the pure code generator BUSINESS_RULES §3.1
- * depends on. The Firestore transaction path (redeem/cancel/complete) needs the emulator and is
- * exercised by integration tests later.
+ * Covers the pure logic in {@link RedeemCodeService}: {@link RedeemCodeService#generateCode} (§3.1
+ * code shape) and {@link RedeemCodeService#isExpired} (§3.1 TTL boundary). The Firestore transaction
+ * paths (cancel/complete/expire/refund) need the emulator and are exercised by integration tests
+ * later. Firestore/Activity/Audit/Clock deps are {@code null} here — the pure methods never touch them.
  */
 class RedeemCodeServiceTest {
 
-    private final RedeemCodeService service = new RedeemCodeService();
+    private final RedeemCodeService service = new RedeemCodeService(null, null, null, null);
 
     @Test
     void generatesCorrectLengthAndAlphabet() {
@@ -39,5 +42,30 @@ class RedeemCodeServiceTest {
             seen.add(service.generateCode());
         }
         assertTrue(seen.size() > 90, "generator produced too many duplicates: " + seen.size());
+    }
+
+    @Test
+    void notExpiredBeforeExpiry() {
+        Instant expiresAt = Instant.parse("2026-07-06T12:00:00Z");
+        assertFalse(RedeemCodeService.isExpired(expiresAt, expiresAt.minusSeconds(1)));
+    }
+
+    @Test
+    void expiredAtBoundaryInclusive() {
+        // §3.1 "past expiresAt" is inclusive of the exact instant (fail-safe direction).
+        Instant expiresAt = Instant.parse("2026-07-06T12:00:00Z");
+        assertTrue(RedeemCodeService.isExpired(expiresAt, expiresAt));
+    }
+
+    @Test
+    void expiredAfterExpiry() {
+        Instant expiresAt = Instant.parse("2026-07-06T12:00:00Z");
+        assertTrue(RedeemCodeService.isExpired(expiresAt, expiresAt.plusSeconds(1)));
+    }
+
+    @Test
+    void nullExpiryTreatedAsExpired() {
+        // Malformed doc with no expiresAt fails safe (matches EarnCodeService/IdempotencyService).
+        assertTrue(RedeemCodeService.isExpired(null, Instant.parse("2026-07-06T12:00:00Z")));
     }
 }
