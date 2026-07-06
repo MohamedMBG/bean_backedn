@@ -30,6 +30,7 @@ public class AuditService {
     static final String ACTION = "action";
     static final String TARGET_ID = "targetId";
     static final String TARGET_UID = "targetUid";
+    static final String DETAILS = "details";
     static final String CREATED_AT = "createdAt";
 
     private final Firestore firestore;
@@ -50,11 +51,28 @@ public class AuditService {
      */
     public void record(Transaction transaction, String actorUid, String action,
                        String targetId, String targetUid) {
+        record(transaction, actorUid, action, targetId, targetUid, null);
+    }
+
+    /**
+     * Append one audit entry with structured {@code details} (e.g. the created code, adjustment
+     * delta + reason) inside the caller's transaction.
+     *
+     * @param transaction live Firestore transaction; write-only, call after all reads/updates.
+     * @param actorUid    verified Firebase UID of the privileged caller.
+     * @param action      dotted action name, e.g. {@code "points.adjust"}.
+     * @param targetId    id of the primary object acted on, or {@code null}.
+     * @param targetUid   uid of the affected user, or {@code null}.
+     * @param details     action-specific fields to store under {@code details}, or {@code null}.
+     */
+    public void record(Transaction transaction, String actorUid, String action,
+                       String targetId, String targetUid, Map<String, Object> details) {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put(ACTOR_UID, actorUid);
         entry.put(ACTION, action);
         entry.put(TARGET_ID, targetId);
         entry.put(TARGET_UID, targetUid);
+        entry.put(DETAILS, details);
         entry.put(CREATED_AT, FieldValue.serverTimestamp());
         transaction.set(firestore.collection(COLLECTION).document(), entry);
     }
