@@ -10,11 +10,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 
 /**
- * Rewards endpoints — Phase 4 birthday claim, Phase 6 redeem (not yet implemented).
+ * Rewards endpoints — Phase 4 birthday claim, Phase 6 redeem.
  * {@code @ApiV1} publishes every mapping under {@code /api/v1} via {@link com.beanLoyal.backend.config.WebMvcConfig}.
  * All routes require Firebase authentication (default-secured in {@code SecurityConfig}) plus a
  * caller-scoped Firebase UID resolved via {@link CurrentUser}.
@@ -24,13 +25,16 @@ import org.springframework.web.bind.annotation.RequestMapping;
 public class RewardsController {
 
     private final BirthdayRewardService birthdayRewardService;
+    private final RewardRedemptionService rewardRedemptionService;
     private final IdempotencyService idempotencyService;
     private final RateLimitService rateLimitService;
 
     public RewardsController(BirthdayRewardService birthdayRewardService,
+                             RewardRedemptionService rewardRedemptionService,
                              IdempotencyService idempotencyService,
                              RateLimitService rateLimitService) {
         this.birthdayRewardService = birthdayRewardService;
+        this.rewardRedemptionService = rewardRedemptionService;
         this.idempotencyService = idempotencyService;
         this.rateLimitService = rateLimitService;
     }
@@ -71,6 +75,48 @@ public class RewardsController {
                 idempotencyKey,
                 null,
                 transaction -> birthdayRewardService.claim(transaction, user.uid())
+        );
+    }
+
+    /**
+     * {@code POST /api/v1/rewards/redeem} — redeem a catalog reward, deducting its points cost and
+     * issuing a pending redeem code the customer shows the cashier (BUSINESS_RULES.md §3).
+     * <p>
+     * Auth: Firebase ID token required (any role). Idempotency: {@code Idempotency-Key} header
+     * REQUIRED (§1) — missing header → 400 {@code IDEMPOTENCY_KEY_REQUIRED}, same key + same body
+     * replayed → cached response returned without re-deducting points or issuing a second code,
+     * same key with a differing body → 409 {@code IDEMPOTENCY_KEY_REUSED}. Rate limit:
+     * {@link RateLimitPolicy#REDEEM} (20/min per IP, 5/min per UID) — 429 {@code RATE_LIMITED} on
+     * breach, checked before any Firestore access.
+     * <p>
+     * Request body: {@link RedeemRequest}. Response: 200 {@code ApiResponse<RedeemResponse>}.
+     * Business rejections (404 {@code REWARD_NOT_FOUND}/{@code USER_NOT_FOUND}, 410
+     * {@code REWARD_INACTIVE}, 409 {@code REDEEM_PENDING_LIMIT}, 422 {@code INSUFFICIENT_POINTS})
+     * come from {@link RewardRedemptionService#redeem}.
+     *
+     * @param user           verified caller identity; {@code user.uid()} is the only trusted source
+     *                       of identity for the redemption (never accepts a uid from the client).
+     * @param idempotencyKey raw {@code Idempotency-Key} header value, or {@code null} if the client
+     *                       omitted it (validated by {@link IdempotencyService}, not here).
+     * @param request        client-supplied reward selection; hashed by {@link IdempotencyService}
+     *                       to detect key reuse with a changed body.
+     * @param httpRequest    used only to resolve the caller's IP for the rate-limit check.
+     * @return the JSON body produced by {@link IdempotencyService#execute}, either freshly computed
+     *         or replayed from a prior identical request.
+     */
+    @PostMapping("/redeem")
+    public ResponseEntity<String> redeem(@AuthenticationPrincipal CurrentUser user,
+                                         @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                         @RequestBody RedeemRequest request,
+                                         HttpServletRequest httpRequest) {
+        rateLimitService.check(RateLimitPolicy.REDEEM, ClientIpResolver.resolve(httpRequest), user.uid());
+
+        return idempotencyService.execute(
+                user.uid(),
+                httpRequest.getRequestURI(),
+                idempotencyKey,
+                request,
+                transaction -> rewardRedemptionService.redeem(transaction, user.uid(), request.rewardId())
         );
     }
 }

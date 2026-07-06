@@ -95,10 +95,10 @@ backend/src/main/java/com/beanLoyal/backend/
 ├── health/
 │   └── HealthController.java                ⏳ Phase 2
 ├── rewards/
-│   ├── RewardsController.java               ⏳ Phase 4, 6
-│   ├── BirthdayRewardService.java           ⏳ Phase 4
-│   ├── RewardRedemptionService.java         ⏳ Phase 6
-│   └── RedeemCodeService.java               ⏳ Phase 6, 7
+│   ├── RewardsController.java               ✅ Phase 4, 6
+│   ├── BirthdayRewardService.java           ✅ Phase 4
+│   ├── RewardRedemptionService.java         ✅ Phase 6
+│   └── RedeemCodeService.java               ✅ Phase 6 (gen); ⏳ Phase 7 read/cancel/complete
 ├── loyalty/
 │   ├── LoyaltyController.java               ✅ Phase 5
 │   ├── LoyaltyService.java                  ✅ Phase 5
@@ -218,7 +218,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 3 | Authenticated request helper | ⬜ |
 | 4 | `POST /api/rewards/birthday` | ✅ `RewardsController` + `BirthdayRewardService` — idempotency-guarded, rate-limited, fixed 50pt grant (BUSINESS_RULES §3.7) |
 | 5 | `POST /api/loyalty/earn` | ✅ `LoyaltyController` + `LoyaltyService` + `EarnCodeService` — idempotency-guarded, rate-limited (`RateLimitPolicy.EARN`), 30-min visit cooldown, single-use codes (BUSINESS_RULES §2) |
-| 6 | `POST /api/rewards/redeem` | ⬜ |
+| 6 | `POST /api/rewards/redeem` | ✅ `RewardsController` + `RewardRedemptionService` + `RedeemCodeService` — idempotency-guarded, rate-limited (`RateLimitPolicy.REDEEM`), 1-pending-per-user, 15-min pending TTL, points deducted atomically (BUSINESS_RULES §3). Needs Firestore composite index on `redeem_codes(uid,status)` at Phase 1 deploy |
 | 7 | `POST /api/rewards/redeem/cancel` | ⬜ |
 | 7 | `POST /api/cashier/redeem/complete` | ⬜ |
 | 7 | Expiration job | ⬜ |
@@ -522,7 +522,8 @@ Remaining:
 10. ✅ Phase 4 birthday endpoint — `rewards/RewardsController` (`POST /api/v1/rewards/birthday`) + `rewards/BirthdayRewardService`. Wraps `IdempotencyService.execute(...)`, checks `birthday_claims/{uid}_{year}`, grants fixed 50 points, rate-limited via `RateLimitPolicy.BIRTHDAY`. Added generic `common/ApiException` (status+code+message) for business-rule rejections, reused by future earn/redeem phases
 11. ✅ Phase 5 QR earn endpoint — `loyalty/LoyaltyController` (`POST /api/v1/loyalty/earn`) + `loyalty/LoyaltyService` + `loyalty/EarnCodeService`. Wraps `IdempotencyService.execute(...)`, validates code format/existence/expiry/used-status, enforces 30-min visit cooldown, burns the code and grants its stored points atomically, rate-limited via `RateLimitPolicy.EARN` (BUSINESS_RULES §2, now IMPLEMENTED)
 11a. ✅ Phase 5 review fixes — `LoyaltyService` now injects a `config/ClockConfig` `Clock` bean instead of calling `Instant.now()` directly (deterministic cooldown/expiry, testable via `Clock.fixed`); missing `users/{uid}` doc now fails fast with 404 `USER_NOT_FOUND` instead of surfacing as a generic 500 at transaction commit (BUSINESS_RULES §2.8). Added `common/ClientIpResolver` (shared by `LoyaltyController` + `RewardsController`) reading the LAST `X-Forwarded-For` hop instead of the first, closing a rate-limit-bypass spoofing gap (BUSINESS_RULES §4). Added `LoyaltyServiceTest#futureLastEarnAtFromClockSkewIsTreatedAsCoolingDown` documenting clock-skew handling.
-12. Phase 6 redemption endpoint (`POST /api/v1/rewards/redeem`) — next code work
+12. ✅ Phase 6 redemption endpoint — `rewards/RewardsController` (`POST /api/v1/rewards/redeem`) + `rewards/RewardRedemptionService` + `rewards/RedeemCodeService`. Wraps `IdempotencyService.execute(...)`; validates reward existence/active (§3.6), enforces 1-pending-per-user via a `redeem_codes(uid==caller, status==pending)` transaction query (§3.4), rejects insufficient balance (§3.5, 422), then deducts points and creates a `pending` `redeem_codes/{code}` doc with 15-min `expiresAt` (§3.1) atomically. Rate-limited via `RateLimitPolicy.REDEEM`. Injects `Clock` for deterministic expiry (matches Phase 5). **Deploy dep:** needs a Firestore composite index on `redeem_codes(uid,status)` (Phase 1). Activity-log write deferred to Phase 8 (canonical schema). `RedeemCodeServiceTest` green; `contextLoads()` still needs Firebase creds (env limit).
+13. Phase 7 — cancel (`POST /api/v1/rewards/redeem/cancel`) + cashier complete + expiration job — next code work
 
 ---
 

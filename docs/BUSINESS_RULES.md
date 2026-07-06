@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-29
 **Owner:** Solo dev
-**Status:** §1 + §2 LOCKED & IMPLEMENTED. §3 partially implemented (§3.7 birthday only) — remaining §3 blocks Phase 6.
+**Status:** §1 + §2 LOCKED & IMPLEMENTED. §3 redeem creation (§3.1, §3.4, §3.5, §3.6, §3.8) + §3.7 birthday IMPLEMENTED (Phase 6). §3.2/§3.3 refund-on-cancel/expiry remain for Phase 7.
 
 ---
 
