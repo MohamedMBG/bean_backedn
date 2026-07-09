@@ -1,15 +1,21 @@
 package com.beanLoyal.backend.admin;
 
+import com.beanLoyal.backend.loyalty.EarnCodeService;
+import com.beanLoyal.backend.rewards.RedeemCode;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.AggregateQuerySnapshot;
+import com.google.cloud.firestore.DocumentReference;
+import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ExecutionException;
 
 /**
@@ -24,6 +30,10 @@ import java.util.concurrent.ExecutionException;
  */
 @Service
 public class AnalyticsService {
+
+    private static final String USERS = "users";
+    private static final String USER_NAME = "name";
+    private static final String CREATED_AT = "createdAt";
 
     private final Firestore firestore;
 
@@ -55,23 +65,23 @@ public class AnalyticsService {
         Map<Long, DayAcc> byDay = new LinkedHashMap<>();
 
         // Earn codes created in the window → revenue, points issued, per-cashier issuance, day series.
-        for (QueryDocumentSnapshot doc : firestore.collection("earn_codes")
-                .whereGreaterThanOrEqualTo("createdAt", from)
-                .whereLessThan("createdAt", to)
+        for (QueryDocumentSnapshot doc : firestore.collection(EarnCodeService.COLLECTION)
+                .whereGreaterThanOrEqualTo(EarnCodeService.CREATED_AT, from)
+                .whereLessThan(EarnCodeService.CREATED_AT, to)
                 .get().get().getDocuments()) {
-            double amount = orZeroD(doc.getDouble("amountMAD"));
-            long points = orZero(doc.getLong("points"));
+            double amount = orZeroD(doc.getDouble(EarnCodeService.AMOUNT_MAD));
+            long points = orZero(doc.getLong(EarnCodeService.POINTS));
             revenue += amount;
             pointsIssued += points;
 
-            String cashier = doc.getString("createdBy");
+            String cashier = doc.getString(EarnCodeService.CREATED_BY);
             if (cashier != null) {
                 Acc a = byCashier.computeIfAbsent(cashier, k -> new Acc());
                 a.codesIssued++;
                 a.revenue += amount;
             }
 
-            Timestamp createdAt = doc.getTimestamp("createdAt");
+            Timestamp createdAt = doc.getTimestamp(EarnCodeService.CREATED_AT);
             if (createdAt != null) {
                 DayAcc d = byDay.computeIfAbsent(floorToUtcDay(createdAt.toDate().getTime()), k -> new DayAcc());
                 d.earnCount++;
@@ -83,36 +93,52 @@ public class AnalyticsService {
         // Query by terminalAt range and filter status in-code to avoid a (status, terminalAt) index.
         long pointsRedeemed = 0;
         long gifts = 0;
-        for (QueryDocumentSnapshot doc : firestore.collection("redeem_codes")
-                .whereGreaterThanOrEqualTo("terminalAt", from)
-                .whereLessThan("terminalAt", to)
+        for (QueryDocumentSnapshot doc : firestore.collection(RedeemCode.COLLECTION)
+                .whereGreaterThanOrEqualTo(RedeemCode.TERMINAL_AT, from)
+                .whereLessThan(RedeemCode.TERMINAL_AT, to)
                 .get().get().getDocuments()) {
-            if (!"completed".equals(doc.getString("status"))) continue;
+            if (!RedeemCode.STATUS_COMPLETED.equals(doc.getString(RedeemCode.STATUS))) continue;
             gifts++;
-            pointsRedeemed += orZero(doc.getLong("cost"));
-            String cashier = doc.getString("completedByUid");
+            pointsRedeemed += orZero(doc.getLong(RedeemCode.COST));
+            String cashier = doc.getString(RedeemCode.COMPLETED_BY);
             if (cashier != null) {
                 byCashier.computeIfAbsent(cashier, k -> new Acc()).redeemsCompleted++;
             }
         }
 
         // New clients: an aggregate count, no per-doc read needed.
-        AggregateQuerySnapshot newClientsSnap = firestore.collection("users")
-                .whereGreaterThanOrEqualTo("createdAt", from)
-                .whereLessThan("createdAt", to)
+        AggregateQuerySnapshot newClientsSnap = firestore.collection(USERS)
+                .whereGreaterThanOrEqualTo(CREATED_AT, from)
+                .whereLessThan(CREATED_AT, to)
                 .count().get().get();
         long newClients = newClientsSnap.getCount();
 
+        Map<String, String> cashierNames = resolveNames(byCashier.keySet());
         return new AnalyticsResponse(revenue, pointsIssued, pointsRedeemed, gifts, newClients,
-                buildCashierStats(byCashier), buildSeries(byDay));
+                buildCashierStats(byCashier, cashierNames), buildSeries(byDay));
     }
 
-    private List<AnalyticsResponse.CashierStat> buildCashierStats(Map<String, Acc> byCashier)
+    /** Resolve display names for all cashier uids in ONE batched {@code getAll}, uid as fallback. */
+    private Map<String, String> resolveNames(Set<String> uids)
             throws ExecutionException, InterruptedException {
+        if (uids.isEmpty()) return Map.of();
+        DocumentReference[] refs = uids.stream()
+                .map(u -> firestore.collection(USERS).document(u))
+                .toArray(DocumentReference[]::new);
+        Map<String, String> names = new HashMap<>();
+        for (DocumentSnapshot snap : firestore.getAll(refs).get()) {
+            String name = snap.getString(USER_NAME);
+            names.put(snap.getId(), (name == null || name.isBlank()) ? snap.getId() : name);
+        }
+        return names;
+    }
+
+    private static List<AnalyticsResponse.CashierStat> buildCashierStats(Map<String, Acc> byCashier,
+                                                                         Map<String, String> names) {
         List<AnalyticsResponse.CashierStat> out = new ArrayList<>();
         for (Map.Entry<String, Acc> e : byCashier.entrySet()) {
             Acc a = e.getValue();
-            out.add(new AnalyticsResponse.CashierStat(e.getKey(), resolveName(e.getKey()),
+            out.add(new AnalyticsResponse.CashierStat(e.getKey(), names.getOrDefault(e.getKey(), e.getKey()),
                     a.codesIssued, a.revenue, a.redeemsCompleted));
         }
         out.sort((x, y) -> Long.compare(y.codesIssued() + y.redeemsCompleted(),
@@ -127,12 +153,6 @@ public class AnalyticsService {
         }
         out.sort((x, y) -> Long.compare(x.dayStartEpochMs(), y.dayStartEpochMs()));
         return out;
-    }
-
-    /** Resolve a cashier's display name; falls back to the uid if the doc/name is missing. */
-    private String resolveName(String uid) throws ExecutionException, InterruptedException {
-        String name = firestore.collection("users").document(uid).get().get().getString("name");
-        return (name == null || name.isBlank()) ? uid : name;
     }
 
     /** UTC midnight (epoch ms) of the day containing {@code epochMs}. Pure — unit-tested. */
