@@ -59,15 +59,21 @@ Implemented by `loyalty/LoyaltyController` (`POST /api/v1/loyalty/earn`) + `loya
 `loyalty/EarnCodeService`, wrapped in `IdempotencyService.execute(...)` and rate-limited via
 `RateLimitPolicy.EARN`. Every rule below (§2.1–§2.8) matches the shipped code exactly.
 
-### 2.1 Points per earn code
+### 2.1 Points per earn code — MAD-priced (UPDATED 2026-07-09)
 
-**Stored per code, set at creation time. Default value = 1 point.**
+**The cashier enters the purchase amount in MAD; the backend derives points at a fixed ratio and
+stores both.**
 
-- `earn_codes/{id}.points` is the source of truth
-- Admin creates codes with any positive integer value via `POST /api/v1/admin/earn-codes`
-- No per-user tier multipliers in MVP
+- Ratio: **`POINTS_PER_MAD = 50`** (`points = round(amountMad × 50)`) — `EarnCodeService.POINTS_PER_MAD`.
+- `POST /api/v1/admin/earn-codes` takes `{amountMad}` (positive number; `INVALID_AMOUNT` otherwise).
+  Pricing is **backend-owned** — the client never sends a point value it could inflate.
+- `earn_codes/{id}` stores both `amountMAD` (source for dashboard **revenue**) and the derived
+  `points` (source of truth for the credit at scan time).
+- No per-user tier multipliers in MVP.
 
-**Why:** lets the owner print receipts at different point values without code changes. Tier multipliers can layer on later without changing the earn flow.
+**Why:** revenue reporting needs the money amount, and keeping the MAD→points ratio server-side
+means the owner can retune pricing in one place. ponytail: the ratio is a constant today — lift to
+config/Firestore settings if it must change without a redeploy.
 
 ### 2.2 Earn code TTL
 
