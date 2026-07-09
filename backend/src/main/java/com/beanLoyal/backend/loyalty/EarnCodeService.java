@@ -50,12 +50,15 @@ public class EarnCodeService {
      */
     static final long POINTS_PER_MAD = 50;
 
+    /** Collection name; the document id IS the earn code value. */
+    public static final String COLLECTION = "earn_codes";
+
     static final String STATUS = "status";
-    static final String POINTS = "points";
-    static final String AMOUNT_MAD = "amountMAD";
-    static final String CREATED_AT = "createdAt";
+    public static final String POINTS = "points";
+    public static final String AMOUNT_MAD = "amountMAD";
+    public static final String CREATED_AT = "createdAt";
     static final String EXPIRES_AT = "expiresAt";
-    static final String CREATED_BY = "createdBy";
+    public static final String CREATED_BY = "createdBy";
     static final String STATUS_ACTIVE = "active";
     static final String STATUS_USED = "used";
     public static final String STATUS_REVOKED = "revoked";

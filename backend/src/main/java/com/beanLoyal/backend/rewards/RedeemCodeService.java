@@ -168,7 +168,8 @@ public class RedeemCodeService {
         String rewardName = snap.getString(RedeemCode.REWARD_NAME);
         transaction.update(ref, Map.of(
                 RedeemCode.STATUS, RedeemCode.STATUS_COMPLETED,
-                RedeemCode.TERMINAL_AT, toTimestamp(Instant.now(clock))));
+                RedeemCode.TERMINAL_AT, toTimestamp(Instant.now(clock)),
+                RedeemCode.COMPLETED_BY, cashierUid));
         auditService.record(transaction, cashierUid, "redeem.complete", code, ownerUid);
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK,
                 ApiResponse.of(new CashierCompleteResponse(code, rewardName, RedeemCode.STATUS_COMPLETED)));

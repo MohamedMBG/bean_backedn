@@ -15,32 +15,34 @@ import java.util.Map;
  * The document id is the redeem code itself (see {@link RedeemCodeService}), so no {@code code}
  * field is stored on the doc.
  */
-final class RedeemCode {
+public final class RedeemCode {
 
     private RedeemCode() {
     }
 
     /** Collection name; the document id IS the redeem code value. */
-    static final String COLLECTION = "redeem_codes";
+    public static final String COLLECTION = "redeem_codes";
 
     static final String UID = "uid";
     static final String REWARD_ID = "rewardId";
     static final String REWARD_NAME = "rewardName";
     /** Points cost deducted at redeem time; stored so the Phase 7 refund reads it from the code doc. */
-    static final String COST = "cost";
-    static final String STATUS = "status";
+    public static final String COST = "cost";
+    public static final String STATUS = "status";
     static final String CREATED_AT = "createdAt";
     static final String EXPIRES_AT = "expiresAt";
     /**
      * Instant the code left {@code pending} (set on complete/cancel/expire), so an admin/support
      * lookup on the code doc itself is self-describing without joining the activity/audit logs.
      */
-    static final String TERMINAL_AT = "terminalAt";
+    public static final String TERMINAL_AT = "terminalAt";
+    /** Cashier uid who completed the redeem (set on complete), for per-cashier dashboard stats. */
+    public static final String COMPLETED_BY = "completedByUid";
 
     /** The full lifecycle of a redeem code (§3): created {@code pending}, then one terminal state. */
     static final String STATUS_PENDING = "pending";
     /** Set by the Phase 7 cashier-complete flow. */
-    static final String STATUS_COMPLETED = "completed";
+    public static final String STATUS_COMPLETED = "completed";
     /** Set by the Phase 7 user-cancel flow (refunds points). */
     static final String STATUS_CANCELLED = "cancelled";
     /** Set by the Phase 7 expiration job (refunds points). */

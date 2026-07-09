@@ -38,12 +38,14 @@ import java.util.concurrent.ExecutionException;
 public class AdminController {
 
     private final AdminService adminService;
+    private final AnalyticsService analyticsService;
     private final IdempotencyService idempotencyService;
     private final RateLimitService rateLimitService;
 
-    public AdminController(AdminService adminService, IdempotencyService idempotencyService,
-                          RateLimitService rateLimitService) {
+    public AdminController(AdminService adminService, AnalyticsService analyticsService,
+                          IdempotencyService idempotencyService, RateLimitService rateLimitService) {
         this.adminService = adminService;
+        this.analyticsService = analyticsService;
         this.idempotencyService = idempotencyService;
         this.rateLimitService = rateLimitService;
     }
@@ -217,6 +219,26 @@ public class AdminController {
             throws ExecutionException, InterruptedException {
         rateLimit(user, http);
         return ApiResponse.of(adminService.getUserActivity(targetUid, limit));
+    }
+
+    /**
+     * {@code GET /api/v1/admin/analytics?from=&to=} — aggregated dashboard metrics over the
+     * {@code [from, to)} epoch-millis window (§10): revenue, points issued/redeemed, gifts, new
+     * clients, per-cashier breakdown, per-day series. Response: 200 {@code ApiResponse<AnalyticsResponse>}.
+     * Rejection: 400 {@code INVALID_RANGE} if {@code from >= to}.
+     */
+    @GetMapping("/analytics")
+    public ApiResponse<AnalyticsResponse> analytics(@AuthenticationPrincipal CurrentUser user,
+                                                    @RequestParam long from,
+                                                    @RequestParam long to,
+                                                    HttpServletRequest http)
+            throws ExecutionException, InterruptedException {
+        rateLimit(user, http);
+        if (from >= to) {
+            throw new com.beanLoyal.backend.common.ApiException(
+                    org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_RANGE", "from must be before to");
+        }
+        return ApiResponse.of(analyticsService.compute(from, to));
     }
 
     /**
