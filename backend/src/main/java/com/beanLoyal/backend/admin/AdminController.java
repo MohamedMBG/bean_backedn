@@ -53,9 +53,10 @@ public class AdminController {
     }
 
     /**
-     * {@code POST /api/v1/admin/earn-codes} — create a new active earn code (§2.1/§2.2). This is what
-     * makes the Phase 5 earn endpoint usable. Idempotency-Key required; audit-logged.
-     * Response: 200 {@code ApiResponse<CreateEarnCodeResponse>}. Rejection: 400 {@code INVALID_POINTS}.
+     * {@code POST /api/v1/admin/earn-codes} — create a new active earn code for a MAD purchase
+     * (§2.1/§2.2). The point value is derived server-side from {@code amountMad}. This is what makes
+     * the Phase 5 earn endpoint usable. Idempotency-Key required; audit-logged.
+     * Response: 200 {@code ApiResponse<CreateEarnCodeResponse>}. Rejection: 400 {@code INVALID_AMOUNT}.
      */
     @PostMapping("/earn-codes")
     public ResponseEntity<String> createEarnCode(@AuthenticationPrincipal CurrentUser user,
@@ -64,7 +65,7 @@ public class AdminController {
                                                  HttpServletRequest http) {
         rateLimit(user, http);
         return idempotencyService.execute(user.uid(), http.getRequestURI(), idempotencyKey, request,
-                tx -> adminService.createEarnCode(tx, user.uid(), request.points()));
+                tx -> adminService.createEarnCode(tx, user.uid(), request.amountMad()));
     }
 
     /**

@@ -43,8 +43,16 @@ public class EarnCodeService {
     /** Earn code lifetime from creation (§2.2). */
     static final Duration CODE_TTL = Duration.ofHours(24);
 
+    /**
+     * Points granted per 1 MAD of purchase (§2.1). Pricing is backend-owned so the client can never
+     * inflate a code's value. ponytail: a constant for now — lift to config/Firestore settings if the
+     * ratio ever needs to change without a redeploy.
+     */
+    static final long POINTS_PER_MAD = 50;
+
     static final String STATUS = "status";
     static final String POINTS = "points";
+    static final String AMOUNT_MAD = "amountMAD";
     static final String CREATED_AT = "createdAt";
     static final String EXPIRES_AT = "expiresAt";
     static final String CREATED_BY = "createdBy";
@@ -144,25 +152,33 @@ public class EarnCodeService {
         transaction.update(ref, STATUS, STATUS_USED);
     }
 
+    /** Points granted for a MAD purchase amount at the {@link #POINTS_PER_MAD} ratio (§2.1). */
+    public static long pointsForAmount(double amountMad) {
+        return Math.round(amountMad * POINTS_PER_MAD);
+    }
+
     /**
-     * Create a new {@code active} earn code worth {@code points}, inside the admin endpoint's
-     * transaction (§2.1/§2.2). The generated code is the document id.
+     * Create a new {@code active} earn code for a {@code amountMad} purchase, inside the admin
+     * endpoint's transaction (§2.1/§2.2). Stores both the money amount (for revenue reporting) and
+     * the derived {@code points}. The generated code is the document id.
      * <p>
      * ponytail: no collision-retry loop — at 32^10 the birthday-bound collision probability is
      * negligible for MVP volumes, and a (practically impossible) collision would overwrite one stale
      * doc via {@code set}. Add a read-then-retry loop only if code volume ever approaches that keyspace.
      *
      * @param transaction live Firestore transaction from the admin idempotency wrapper.
-     * @param points      positive point value stored on the code (validated by the caller).
-     * @param actorUid    admin uid, recorded as {@code createdBy}.
-     * @param now         current instant; {@code expiresAt = now + 24h}.
+     * @param amountMad    purchase amount in MAD (validated by the caller).
+     * @param points       point value derived from {@code amountMad} (validated by the caller).
+     * @param actorUid     admin/cashier uid, recorded as {@code createdBy} (also drives per-cashier stats).
+     * @param now          current instant; {@code expiresAt = now + 24h}.
      * @return the created code and its expiry.
      */
-    public CreatedCode create(Transaction transaction, long points, String actorUid, Instant now) {
+    public CreatedCode create(Transaction transaction, double amountMad, long points, String actorUid, Instant now) {
         String code = generateCode();
         Instant expiresAt = now.plus(CODE_TTL);
         Map<String, Object> doc = new LinkedHashMap<>();
         doc.put(POINTS, points);
+        doc.put(AMOUNT_MAD, amountMad);
         doc.put(STATUS, STATUS_ACTIVE);
         doc.put(CREATED_AT, toTimestamp(now));
         doc.put(EXPIRES_AT, toTimestamp(expiresAt));

@@ -67,18 +67,21 @@ public class AdminService {
     // ---- writes (transactional) -------------------------------------------------------------
 
     /**
-     * Create a new active earn code worth {@code points} (§2.1/§2.2) and audit it.
+     * Create a new active earn code for a {@code amountMad} purchase (§2.1/§2.2) and audit it. The
+     * point value is derived server-side at the fixed {@code POINTS_PER_MAD} ratio; the money amount
+     * is stored on the code so the dashboard can sum revenue.
      *
-     * @throws ApiException 400 {@code INVALID_POINTS} if not a positive integer.
+     * @throws ApiException 400 {@code INVALID_AMOUNT} if {@code amountMad} is null or not positive.
      */
     public IdempotencyService.BusinessOutcome createEarnCode(com.google.cloud.firestore.Transaction tx,
-                                                             String actorUid, Integer points) {
-        validatePoints(points);
-        EarnCodeService.CreatedCode created = earnCodeService.create(tx, points, actorUid, Instant.now(clock));
+                                                             String actorUid, Double amountMad) {
+        validateAmount(amountMad);
+        long points = EarnCodeService.pointsForAmount(amountMad);
+        EarnCodeService.CreatedCode created = earnCodeService.create(tx, amountMad, points, actorUid, Instant.now(clock));
         auditService.record(tx, actorUid, "earn_code.create", created.code(), null,
-                Map.of("code", created.code(), "points", points));
-        return new IdempotencyService.BusinessOutcome(HttpStatus.OK,
-                ApiResponse.of(new CreateEarnCodeResponse(created.code(), points, created.expiresAt().toEpochMilli())));
+                Map.of("code", created.code(), "amountMad", amountMad, "points", points));
+        return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(
+                new CreateEarnCodeResponse(created.code(), amountMad, points, created.expiresAt().toEpochMilli())));
     }
 
     /**
@@ -351,9 +354,9 @@ public class AdminService {
 
     // ---- pure helpers (unit-tested) ---------------------------------------------------------
 
-    static void validatePoints(Integer points) {
-        if (points == null || points <= 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_POINTS", "points must be a positive integer");
+    static void validateAmount(Double amountMad) {
+        if (amountMad == null || amountMad <= 0 || amountMad.isNaN() || amountMad.isInfinite()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AMOUNT", "amountMad must be a positive number");
         }
     }
 

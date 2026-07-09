@@ -15,18 +15,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class AdminServiceTest {
 
     @Test
-    void validatePointsRejectsNonPositive() {
-        assertEquals("INVALID_POINTS",
-                assertThrows(ApiException.class, () -> AdminService.validatePoints(0)).getCode());
-        assertEquals("INVALID_POINTS",
-                assertThrows(ApiException.class, () -> AdminService.validatePoints(-5)).getCode());
-        assertEquals("INVALID_POINTS",
-                assertThrows(ApiException.class, () -> AdminService.validatePoints(null)).getCode());
+    void validateAmountRejectsNonPositiveOrNonFinite() {
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(0.0)).getCode());
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(-5.0)).getCode());
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(null)).getCode());
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(Double.NaN)).getCode());
     }
 
     @Test
-    void validatePointsAcceptsPositive() {
-        assertDoesNotThrow(() -> AdminService.validatePoints(1));
+    void validateAmountAcceptsPositive() {
+        assertDoesNotThrow(() -> AdminService.validateAmount(50.0));
+    }
+
+    @Test
+    void pointsForAmountUsesRatio() {
+        assertEquals(2500L, com.beanLoyal.backend.loyalty.EarnCodeService.pointsForAmount(50.0));
+        assertEquals(75L, com.beanLoyal.backend.loyalty.EarnCodeService.pointsForAmount(1.5));
     }
 
     @Test
