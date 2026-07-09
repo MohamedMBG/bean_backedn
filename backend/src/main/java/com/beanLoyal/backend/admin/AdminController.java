@@ -39,13 +39,16 @@ public class AdminController {
 
     private final AdminService adminService;
     private final AnalyticsService analyticsService;
+    private final AdminLogsService logsService;
     private final IdempotencyService idempotencyService;
     private final RateLimitService rateLimitService;
 
     public AdminController(AdminService adminService, AnalyticsService analyticsService,
-                          IdempotencyService idempotencyService, RateLimitService rateLimitService) {
+                          AdminLogsService logsService, IdempotencyService idempotencyService,
+                          RateLimitService rateLimitService) {
         this.adminService = adminService;
         this.analyticsService = analyticsService;
+        this.logsService = logsService;
         this.idempotencyService = idempotencyService;
         this.rateLimitService = rateLimitService;
     }
@@ -239,6 +242,34 @@ public class AdminController {
                     org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_RANGE", "from must be before to");
         }
         return ApiResponse.of(analyticsService.compute(from, to));
+    }
+
+    /**
+     * {@code GET /api/v1/admin/earn-codes?limit=} — recent earn codes for the scan-log screen (§10),
+     * newest first, with cashier + customer names resolved. Response: 200
+     * {@code ApiResponse<EarnLogResponse>}.
+     */
+    @GetMapping("/earn-codes")
+    public ApiResponse<EarnLogResponse> earnLog(@AuthenticationPrincipal CurrentUser user,
+                                                @RequestParam(defaultValue = "50") int limit,
+                                                HttpServletRequest http)
+            throws ExecutionException, InterruptedException {
+        rateLimit(user, http);
+        return ApiResponse.of(logsService.earnLog(limit));
+    }
+
+    /**
+     * {@code GET /api/v1/admin/redeem-codes?limit=} — recent redeem codes for the reward-log screen
+     * (§10), newest first, with customer + cashier names resolved. Response: 200
+     * {@code ApiResponse<RedeemLogResponse>}.
+     */
+    @GetMapping("/redeem-codes")
+    public ApiResponse<RedeemLogResponse> redeemLog(@AuthenticationPrincipal CurrentUser user,
+                                                    @RequestParam(defaultValue = "50") int limit,
+                                                    HttpServletRequest http)
+            throws ExecutionException, InterruptedException {
+        rateLimit(user, http);
+        return ApiResponse.of(logsService.redeemLog(limit));
     }
 
     /**

@@ -53,7 +53,7 @@ public class EarnCodeService {
     /** Collection name; the document id IS the earn code value. */
     public static final String COLLECTION = "earn_codes";
 
-    static final String STATUS = "status";
+    public static final String STATUS = "status";
     public static final String POINTS = "points";
     public static final String AMOUNT_MAD = "amountMAD";
     public static final String CREATED_AT = "createdAt";
