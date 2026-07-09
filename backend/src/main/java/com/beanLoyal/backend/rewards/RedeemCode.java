@@ -36,6 +36,8 @@ final class RedeemCode {
      * lookup on the code doc itself is self-describing without joining the activity/audit logs.
      */
     static final String TERMINAL_AT = "terminalAt";
+    /** Cashier uid who completed the redeem (set on complete), for per-cashier dashboard stats. */
+    static final String COMPLETED_BY = "completedByUid";
 
     /** The full lifecycle of a redeem code (§3): created {@code pending}, then one terminal state. */
     static final String STATUS_PENDING = "pending";
