@@ -10,6 +10,7 @@ import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 
 import java.io.ByteArrayInputStream;
 import java.io.FileInputStream;
@@ -19,6 +20,9 @@ import java.nio.charset.StandardCharsets;
 
 // Spring config class. Beans defined here loaded at startup.
 @Configuration
+// Skipped under the "test" profile so the context can load with mocked Firebase beans (no real
+// service-account credentials required in CI/unit runs).
+@Profile("!test")
 // Holds Firebase Admin SDK setup logic.
 public class FirebaseAdminConfig {
 
