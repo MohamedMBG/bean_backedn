@@ -114,6 +114,33 @@ public class AdminController {
     }
 
     /**
+     * {@code GET /api/v1/admin/users?limit=} — the admin client roster (§10). A single capped page.
+     * Response: 200 {@code ApiResponse<UserListResponse>}.
+     */
+    @GetMapping("/users")
+    public ApiResponse<UserListResponse> listUsers(@AuthenticationPrincipal CurrentUser user,
+                                                   @RequestParam(defaultValue = "50") int limit,
+                                                   HttpServletRequest http)
+            throws ExecutionException, InterruptedException {
+        rateLimit(user, http);
+        return ApiResponse.of(adminService.listUsers(limit));
+    }
+
+    /**
+     * {@code GET /api/v1/admin/users/{uid}} — one user's full profile (§10). The literal
+     * {@code /users/search} route above takes precedence over this {@code {uid}} template.
+     * Response: 200 {@code ApiResponse<UserDetailResponse>}. Rejection: 404 {@code USER_NOT_FOUND}.
+     */
+    @GetMapping("/users/{uid}")
+    public ApiResponse<UserDetailResponse> getUser(@AuthenticationPrincipal CurrentUser user,
+                                                   @PathVariable("uid") String targetUid,
+                                                   HttpServletRequest http)
+            throws ExecutionException, InterruptedException {
+        rateLimit(user, http);
+        return ApiResponse.of(adminService.getUser(targetUid));
+    }
+
+    /**
      * {@code GET /api/v1/admin/users/{uid}/activity?limit=} — a user's recent activity feed (§10).
      * Response: 200 {@code ApiResponse<UserActivityResponse>}. Rejection: 404 {@code USER_NOT_FOUND}.
      */
