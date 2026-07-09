@@ -7,6 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
 /**
  * Append-only writer for the {@code audit/{autoId}} collection
@@ -75,5 +76,28 @@ public class AuditService {
         entry.put(DETAILS, details);
         entry.put(CREATED_AT, FieldValue.serverTimestamp());
         transaction.set(firestore.collection(COLLECTION).document(), entry);
+    }
+
+    /**
+     * Append one audit entry OUTSIDE any transaction — for privileged actions that aren't a Firestore
+     * transaction (e.g. cashier provisioning, which is a Firebase Auth operation). Blocks on the write.
+     * Still append-only: only ever {@code set}s a fresh auto-id document.
+     *
+     * @param actorUid  verified Firebase UID of the privileged caller.
+     * @param action    dotted action name, e.g. {@code "cashier.create"}.
+     * @param targetId  id of the primary object acted on, or {@code null}.
+     * @param targetUid uid of the affected user, or {@code null}.
+     * @param details   action-specific fields (never secrets), or {@code null}.
+     */
+    public void record(String actorUid, String action, String targetId, String targetUid,
+                       Map<String, Object> details) throws ExecutionException, InterruptedException {
+        Map<String, Object> entry = new LinkedHashMap<>();
+        entry.put(ACTOR_UID, actorUid);
+        entry.put(ACTION, action);
+        entry.put(TARGET_ID, targetId);
+        entry.put(TARGET_UID, targetUid);
+        entry.put(DETAILS, details);
+        entry.put(CREATED_AT, FieldValue.serverTimestamp());
+        firestore.collection(COLLECTION).document().set(entry).get();
     }
 }

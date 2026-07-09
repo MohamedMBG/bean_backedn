@@ -11,9 +11,11 @@ import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -51,9 +53,10 @@ public class AdminController {
     }
 
     /**
-     * {@code POST /api/v1/admin/earn-codes} — create a new active earn code (§2.1/§2.2). This is what
-     * makes the Phase 5 earn endpoint usable. Idempotency-Key required; audit-logged.
-     * Response: 200 {@code ApiResponse<CreateEarnCodeResponse>}. Rejection: 400 {@code INVALID_POINTS}.
+     * {@code POST /api/v1/admin/earn-codes} — create a new active earn code for a MAD purchase
+     * (§2.1/§2.2). The point value is derived server-side from {@code amountMad}. This is what makes
+     * the Phase 5 earn endpoint usable. Idempotency-Key required; audit-logged.
+     * Response: 200 {@code ApiResponse<CreateEarnCodeResponse>}. Rejection: 400 {@code INVALID_AMOUNT}.
      */
     @PostMapping("/earn-codes")
     public ResponseEntity<String> createEarnCode(@AuthenticationPrincipal CurrentUser user,
@@ -62,7 +65,7 @@ public class AdminController {
                                                  HttpServletRequest http) {
         rateLimit(user, http);
         return idempotencyService.execute(user.uid(), http.getRequestURI(), idempotencyKey, request,
-                tx -> adminService.createEarnCode(tx, user.uid(), request.points()));
+                tx -> adminService.createEarnCode(tx, user.uid(), request.amountMad()));
     }
 
     /**
@@ -111,6 +114,68 @@ public class AdminController {
             throws ExecutionException, InterruptedException {
         rateLimit(user, http);
         return ApiResponse.of(adminService.searchUsers(email, phone));
+    }
+
+    /**
+     * {@code POST /api/v1/admin/rewards} — create a catalog reward (§10). Idempotency-Key required;
+     * audit-logged. Response: 200 {@code ApiResponse<RewardResponse>}. Rejection: 400 {@code INVALID_REWARD}.
+     */
+    @PostMapping("/rewards")
+    public ResponseEntity<String> createReward(@AuthenticationPrincipal CurrentUser user,
+                                               @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                               @RequestBody RewardRequest request,
+                                               HttpServletRequest http) {
+        rateLimit(user, http);
+        return idempotencyService.execute(user.uid(), http.getRequestURI(), idempotencyKey, request,
+                tx -> adminService.createReward(tx, user.uid(), request));
+    }
+
+    /**
+     * {@code PUT /api/v1/admin/rewards/{id}} — overwrite a catalog reward (§10). Idempotency-Key
+     * required (server key includes {@code id}); audit-logged. Response: 200
+     * {@code ApiResponse<RewardResponse>}. Rejections: 400 {@code INVALID_REWARD}, 404 {@code REWARD_NOT_FOUND}.
+     */
+    @PutMapping("/rewards/{id}")
+    public ResponseEntity<String> updateReward(@AuthenticationPrincipal CurrentUser user,
+                                               @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                               @PathVariable String id,
+                                               @RequestBody RewardRequest request,
+                                               HttpServletRequest http) {
+        rateLimit(user, http);
+        return idempotencyService.execute(user.uid(), http.getRequestURI(), idempotencyKey, request,
+                tx -> adminService.updateReward(tx, user.uid(), id, request));
+    }
+
+    /**
+     * {@code DELETE /api/v1/admin/rewards/{id}} — hard-delete a catalog reward (§10). Idempotency-Key
+     * required (server key includes {@code id}); audit-logged. Response: 200
+     * {@code ApiResponse<RewardDeletedResponse>}. Rejection: 404 {@code REWARD_NOT_FOUND}.
+     */
+    @DeleteMapping("/rewards/{id}")
+    public ResponseEntity<String> deleteReward(@AuthenticationPrincipal CurrentUser user,
+                                               @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+                                               @PathVariable String id,
+                                               HttpServletRequest http) {
+        rateLimit(user, http);
+        return idempotencyService.execute(user.uid(), http.getRequestURI(), idempotencyKey, null,
+                tx -> adminService.deleteReward(tx, user.uid(), id));
+    }
+
+    /**
+     * {@code POST /api/v1/admin/cashiers} — provision a cashier account (§5b/§10): creates the
+     * Firebase Auth user, grants the {@code role: cashier} custom claim, and writes the user doc.
+     * Not idempotency-keyed — the auth account's email uniqueness is the natural guard. Audit-logged.
+     * Response: 200 {@code ApiResponse<CreateCashierResponse>}. Rejections: 400 {@code INVALID_CASHIER},
+     * 409 {@code CASHIER_EMAIL_EXISTS}.
+     */
+    @PostMapping("/cashiers")
+    public ApiResponse<CreateCashierResponse> createCashier(@AuthenticationPrincipal CurrentUser user,
+                                                            @RequestBody CreateCashierRequest request,
+                                                            HttpServletRequest http)
+            throws ExecutionException, InterruptedException {
+        rateLimit(user, http);
+        return ApiResponse.of(adminService.createCashier(user.uid(), request.email(),
+                request.password(), request.name()));
     }
 
     /**

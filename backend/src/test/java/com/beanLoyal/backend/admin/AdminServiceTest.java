@@ -15,18 +15,26 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 class AdminServiceTest {
 
     @Test
-    void validatePointsRejectsNonPositive() {
-        assertEquals("INVALID_POINTS",
-                assertThrows(ApiException.class, () -> AdminService.validatePoints(0)).getCode());
-        assertEquals("INVALID_POINTS",
-                assertThrows(ApiException.class, () -> AdminService.validatePoints(-5)).getCode());
-        assertEquals("INVALID_POINTS",
-                assertThrows(ApiException.class, () -> AdminService.validatePoints(null)).getCode());
+    void validateAmountRejectsNonPositiveOrNonFinite() {
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(0.0)).getCode());
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(-5.0)).getCode());
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(null)).getCode());
+        assertEquals("INVALID_AMOUNT",
+                assertThrows(ApiException.class, () -> AdminService.validateAmount(Double.NaN)).getCode());
     }
 
     @Test
-    void validatePointsAcceptsPositive() {
-        assertDoesNotThrow(() -> AdminService.validatePoints(1));
+    void validateAmountAcceptsPositive() {
+        assertDoesNotThrow(() -> AdminService.validateAmount(50.0));
+    }
+
+    @Test
+    void pointsForAmountUsesRatio() {
+        assertEquals(2500L, com.beanLoyal.backend.loyalty.EarnCodeService.pointsForAmount(50.0));
+        assertEquals(75L, com.beanLoyal.backend.loyalty.EarnCodeService.pointsForAmount(1.5));
     }
 
     @Test
@@ -44,6 +52,41 @@ class AdminServiceTest {
     @Test
     void validateAdjustmentAcceptsNegativeDeltaWithReason() {
         assertDoesNotThrow(() -> AdminService.validateAdjustment(-10, "correction"));
+    }
+
+    @Test
+    void validateRewardRejectsBlankName() {
+        assertEquals("INVALID_REWARD",
+                assertThrows(ApiException.class,
+                        () -> AdminService.validateReward(new RewardRequest("  ", 10, null, null, null))).getCode());
+    }
+
+    @Test
+    void validateRewardRejectsNullOrNegativeCost() {
+        assertEquals("INVALID_REWARD",
+                assertThrows(ApiException.class,
+                        () -> AdminService.validateReward(new RewardRequest("Latte", null, null, null, null))).getCode());
+        assertEquals("INVALID_REWARD",
+                assertThrows(ApiException.class,
+                        () -> AdminService.validateReward(new RewardRequest("Latte", -1, null, null, null))).getCode());
+    }
+
+    @Test
+    void validateRewardAcceptsValid() {
+        assertDoesNotThrow(() -> AdminService.validateReward(new RewardRequest("Latte", 0, "Coffee", null, true)));
+    }
+
+    @Test
+    void validateCashierRejectsBadEmailOrShortPassword() {
+        assertEquals("INVALID_CASHIER",
+                assertThrows(ApiException.class, () -> AdminService.validateCashier("notanemail", "secret1")).getCode());
+        assertEquals("INVALID_CASHIER",
+                assertThrows(ApiException.class, () -> AdminService.validateCashier("a@b.com", "123")).getCode());
+    }
+
+    @Test
+    void validateCashierAcceptsValid() {
+        assertDoesNotThrow(() -> AdminService.validateCashier("cashier@shop.com", "secret1"));
     }
 
     @Test

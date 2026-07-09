@@ -9,9 +9,14 @@ import com.beanLoyal.backend.loyalty.EarnCodeService;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.DocumentReference;
 import com.google.cloud.firestore.DocumentSnapshot;
+import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.Query;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
+import com.google.firebase.auth.AuthErrorCode;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseAuthException;
+import com.google.firebase.auth.UserRecord;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -43,14 +48,16 @@ public class AdminService {
     static final int SEARCH_LIMIT = 20;
 
     private final Firestore firestore;
+    private final FirebaseAuth firebaseAuth;
     private final EarnCodeService earnCodeService;
     private final AuditService auditService;
     private final ActivityService activityService;
     private final Clock clock;
 
-    public AdminService(Firestore firestore, EarnCodeService earnCodeService, AuditService auditService,
-                        ActivityService activityService, Clock clock) {
+    public AdminService(Firestore firestore, FirebaseAuth firebaseAuth, EarnCodeService earnCodeService,
+                        AuditService auditService, ActivityService activityService, Clock clock) {
         this.firestore = firestore;
+        this.firebaseAuth = firebaseAuth;
         this.earnCodeService = earnCodeService;
         this.auditService = auditService;
         this.activityService = activityService;
@@ -60,18 +67,21 @@ public class AdminService {
     // ---- writes (transactional) -------------------------------------------------------------
 
     /**
-     * Create a new active earn code worth {@code points} (§2.1/§2.2) and audit it.
+     * Create a new active earn code for a {@code amountMad} purchase (§2.1/§2.2) and audit it. The
+     * point value is derived server-side at the fixed {@code POINTS_PER_MAD} ratio; the money amount
+     * is stored on the code so the dashboard can sum revenue.
      *
-     * @throws ApiException 400 {@code INVALID_POINTS} if not a positive integer.
+     * @throws ApiException 400 {@code INVALID_AMOUNT} if {@code amountMad} is null or not positive.
      */
     public IdempotencyService.BusinessOutcome createEarnCode(com.google.cloud.firestore.Transaction tx,
-                                                             String actorUid, Integer points) {
-        validatePoints(points);
-        EarnCodeService.CreatedCode created = earnCodeService.create(tx, points, actorUid, Instant.now(clock));
+                                                             String actorUid, Double amountMad) {
+        validateAmount(amountMad);
+        long points = EarnCodeService.pointsForAmount(amountMad);
+        EarnCodeService.CreatedCode created = earnCodeService.create(tx, amountMad, points, actorUid, Instant.now(clock));
         auditService.record(tx, actorUid, "earn_code.create", created.code(), null,
-                Map.of("code", created.code(), "points", points));
-        return new IdempotencyService.BusinessOutcome(HttpStatus.OK,
-                ApiResponse.of(new CreateEarnCodeResponse(created.code(), points, created.expiresAt().toEpochMilli())));
+                Map.of("code", created.code(), "amountMad", amountMad, "points", points));
+        return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(
+                new CreateEarnCodeResponse(created.code(), amountMad, points, created.expiresAt().toEpochMilli())));
     }
 
     /**
@@ -115,6 +125,125 @@ public class AdminService {
                 Map.of("delta", delta, "reason", reason, "balanceAfter", newBalance));
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK,
                 ApiResponse.of(new PointsAdjustmentResponse(delta, newBalance, reason)));
+    }
+
+    /**
+     * Create a {@code rewards_catalog} entry (§10) and audit it. Generates the document id.
+     * {@code active} defaults to {@code true} when the request omits it.
+     *
+     * @throws ApiException 400 {@code INVALID_REWARD} if name is blank or cost is null/negative.
+     */
+    public IdempotencyService.BusinessOutcome createReward(com.google.cloud.firestore.Transaction tx,
+                                                           String actorUid, RewardRequest request) {
+        validateReward(request);
+        boolean active = request.active() == null || request.active();
+        DocumentReference ref = firestore.collection("rewards_catalog").document();
+        Map<String, Object> doc = rewardDoc(request, active);
+        tx.set(ref, doc);
+        auditService.record(tx, actorUid, "reward.create", ref.getId(), null, doc);
+        return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(new RewardResponse(
+                ref.getId(), request.name(), request.cost(), request.category(), request.imageUrl(), active)));
+    }
+
+    /**
+     * Overwrite an existing {@code rewards_catalog} entry (§10) and audit it. Full replace, matching
+     * the admin editor's semantics. Reads the doc before writing (read-before-write).
+     *
+     * @throws ApiException 400 {@code INVALID_REWARD}, 404 {@code REWARD_NOT_FOUND}.
+     */
+    public IdempotencyService.BusinessOutcome updateReward(com.google.cloud.firestore.Transaction tx,
+                                                           String actorUid, String rewardId,
+                                                           RewardRequest request)
+            throws ExecutionException, InterruptedException {
+        validateReward(request);
+        DocumentReference ref = firestore.collection("rewards_catalog").document(rewardId);
+        if (!tx.get(ref).get().exists()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "REWARD_NOT_FOUND", "Reward not found");
+        }
+        boolean active = request.active() == null || request.active();
+        Map<String, Object> doc = rewardDoc(request, active);
+        tx.set(ref, doc);
+        auditService.record(tx, actorUid, "reward.update", rewardId, null, doc);
+        return new IdempotencyService.BusinessOutcome(HttpStatus.OK, ApiResponse.of(new RewardResponse(
+                rewardId, request.name(), request.cost(), request.category(), request.imageUrl(), active)));
+    }
+
+    /**
+     * Hard-delete a {@code rewards_catalog} entry (§10) and audit it. Reads the doc before deleting.
+     * Existing pending redeem codes are unaffected — they carry their own cost snapshot.
+     *
+     * @throws ApiException 404 {@code REWARD_NOT_FOUND}.
+     */
+    public IdempotencyService.BusinessOutcome deleteReward(com.google.cloud.firestore.Transaction tx,
+                                                           String actorUid, String rewardId)
+            throws ExecutionException, InterruptedException {
+        DocumentReference ref = firestore.collection("rewards_catalog").document(rewardId);
+        if (!tx.get(ref).get().exists()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "REWARD_NOT_FOUND", "Reward not found");
+        }
+        tx.delete(ref);
+        auditService.record(tx, actorUid, "reward.delete", rewardId, null, null);
+        return new IdempotencyService.BusinessOutcome(HttpStatus.OK,
+                ApiResponse.of(new RewardDeletedResponse(rewardId, true)));
+    }
+
+    /**
+     * Provision a cashier account (§5b/§10): create the Firebase Auth user, grant the
+     * {@code role: cashier} custom claim (mapped to {@code ROLE_CASHIER} by {@code FirebaseAuthFilter}),
+     * and write the {@code users/{uid}} profile doc via the Admin SDK. NOT a Firestore transaction —
+     * the auth-account creation is its own idempotency guard (a duplicate email fails). Audited via
+     * the non-transactional {@link AuditService#record(String, String, String, String, java.util.Map)}.
+     * The password is used once to create the account and is never stored or logged.
+     *
+     * @throws ApiException 400 {@code INVALID_CASHIER} (bad email / short password), 409
+     *                      {@code CASHIER_EMAIL_EXISTS}, 500 {@code CASHIER_CLAIM_FAILED}.
+     */
+    public CreateCashierResponse createCashier(String actorUid, String email, String password, String name)
+            throws ExecutionException, InterruptedException {
+        validateCashier(email, password);
+        String cleanEmail = email.trim();
+
+        UserRecord.CreateRequest req = new UserRecord.CreateRequest().setEmail(cleanEmail).setPassword(password);
+        if (name != null && !name.isBlank()) req.setDisplayName(name.trim());
+
+        UserRecord user;
+        try {
+            user = firebaseAuth.createUser(req);
+        } catch (FirebaseAuthException e) {
+            if (e.getAuthErrorCode() == AuthErrorCode.EMAIL_ALREADY_EXISTS) {
+                throw new ApiException(HttpStatus.CONFLICT, "CASHIER_EMAIL_EXISTS",
+                        "That email is already registered");
+            }
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CASHIER",
+                    "Could not create the cashier account");
+        }
+
+        try {
+            firebaseAuth.setCustomUserClaims(user.getUid(), Map.of("role", "cashier"));
+        } catch (FirebaseAuthException e) {
+            // Roll back the orphaned auth account so a retry with the same email can succeed rather
+            // than dead-end on EMAIL_ALREADY_EXISTS.
+            try {
+                firebaseAuth.deleteUser(user.getUid());
+            } catch (FirebaseAuthException ignored) {
+                // Best-effort cleanup; surface the original failure regardless.
+            }
+            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "CASHIER_CLAIM_FAILED",
+                    "Account created but role assignment failed — please retry");
+        }
+
+        Map<String, Object> doc = new java.util.HashMap<>();
+        doc.put("uid", user.getUid());
+        doc.put("name", name);
+        doc.put("email", cleanEmail);
+        doc.put("role", "cashier");
+        doc.put("isActive", true);
+        doc.put("createdAt", FieldValue.serverTimestamp());
+        firestore.collection("users").document(user.getUid()).set(doc).get();
+
+        auditService.record(actorUid, "cashier.create", user.getUid(), user.getUid(),
+                Map.of("email", cleanEmail));
+        return new CreateCashierResponse(user.getUid(), cleanEmail);
     }
 
     // ---- reads (non-transactional) ----------------------------------------------------------
@@ -225,9 +354,39 @@ public class AdminService {
 
     // ---- pure helpers (unit-tested) ---------------------------------------------------------
 
-    static void validatePoints(Integer points) {
-        if (points == null || points <= 0) {
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_POINTS", "points must be a positive integer");
+    static void validateAmount(Double amountMad) {
+        if (amountMad == null || amountMad <= 0 || amountMad.isNaN() || amountMad.isInfinite()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_AMOUNT", "amountMad must be a positive number");
+        }
+    }
+
+    static void validateReward(RewardRequest r) {
+        if (r == null || r.name() == null || r.name().isBlank()) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REWARD", "name is required");
+        }
+        if (r.cost() == null || r.cost() < 0) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_REWARD", "cost must be a non-negative integer");
+        }
+    }
+
+    /** Build the {@code rewards_catalog} document. Optional fields are written only when present. */
+    private static Map<String, Object> rewardDoc(RewardRequest r, boolean active) {
+        Map<String, Object> doc = new java.util.HashMap<>();
+        doc.put("name", r.name().trim());
+        doc.put("cost", r.cost());
+        doc.put("active", active);
+        if (r.category() != null) doc.put("category", r.category());
+        if (r.imageUrl() != null) doc.put("imageUrl", r.imageUrl());
+        return doc;
+    }
+
+    static void validateCashier(String email, String password) {
+        if (email == null || email.isBlank() || !email.contains("@")) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CASHIER", "A valid email is required");
+        }
+        if (password == null || password.length() < 6) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CASHIER",
+                    "Password must be at least 6 characters");
         }
     }
 
