@@ -227,7 +227,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 7 | Cashier role | ✅ enforced via `@PreAuthorize` (role mapping already in `FirebaseAuthFilter`, §5b) |
 | 8 | Activity canonical schema | ✅ `activity/ActivityService` canonical shape adopted feed-wide: earn (`+pts`), redeem (`-cost`), birthday (`+50`), cancel/expire (`+cost`) all write `users/{uid}/activities/{id}` in-transaction. No backend read endpoint — the client reads its own feed directly from Firestore (Phase 1 rules permit owner read); admin reads via Phase 10 |
 | 9 | Device registration cleanup | ⬜ |
-| 10 | Admin endpoints | ✅ `admin/AdminController` (`@PreAuthorize hasRole('ADMIN')`) + `AdminService` — earn-code create/revoke (makes Phase 5 usable), user roster (`GET /users`), user search (email/phone), user detail (`GET /users/{uid}`), user activity, points-adjustment (writes `adjust` activity + audit), audit list. Writes idempotency-guarded + audit-logged via `AuditService`; reads capped. `EarnCodeService.create/revoke` added |
+| 10 | Admin endpoints | ✅ `admin/AdminController` (`@PreAuthorize hasRole('ADMIN')`) + `AdminService` — earn-code create/revoke (makes Phase 5 usable), user roster (`GET /users`), user search (email/phone), user detail (`GET /users/{uid}`), user activity, points-adjustment (writes `adjust` activity + audit), audit list, catalog CRUD (`POST/PUT/DELETE /rewards`), cashier provisioning (`POST /cashiers` — Admin-SDK `createUser` + `setCustomUserClaims(role:cashier)` + user doc). Writes idempotency-guarded + audit-logged via `AuditService` (catalog); cashier-create audited non-transactionally; reads capped. `EarnCodeService.create/revoke` added |
 | 11 | Backend tests | ⬜ |
 | 11 | Android tests | ⬜ |
 | 11 | Manual QA pass | ⬜ |
@@ -339,6 +339,10 @@ Critical path: 0 → 2 → 3 → 5 → 6 → 7 → 11 → 12.
 - `GET /api/v1/admin/users/{uid}` — one user's full profile
 - `GET /api/v1/admin/users/{uid}/activity` — recent activity
 - `POST /api/v1/admin/users/{uid}/points-adjustment` — manual adjustment (reason required)
+- `POST /api/v1/admin/rewards` — create catalog reward
+- `PUT /api/v1/admin/rewards/{id}` — update catalog reward
+- `DELETE /api/v1/admin/rewards/{id}` — delete catalog reward
+- `POST /api/v1/admin/cashiers` — provision cashier (create auth user + `role:cashier` claim)
 - `GET /api/v1/admin/audit` — view audit logs
 
 ---

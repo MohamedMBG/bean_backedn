@@ -313,6 +313,12 @@ FirebaseAuth.getInstance().setCustomUserClaims(
 ```
 Run from a one-off `CommandLineRunner` or future admin endpoint (#20).
 
+**Implemented (Phase 10):** cashier provisioning is now live via `POST /api/v1/admin/cashiers`
+(`AdminService.createCashier`) — admin-only; creates the Firebase Auth user, sets the
+`role: cashier` claim, and writes the `users/{uid}` doc. On claim-set failure it rolls back the
+orphaned auth user so a retry can reuse the email. Admin provisioning (`role: admin`) is still
+manual (Option A/B) — no self-serve endpoint by design.
+
 **Option B — Node CLI:**
 ```bash
 node -e "

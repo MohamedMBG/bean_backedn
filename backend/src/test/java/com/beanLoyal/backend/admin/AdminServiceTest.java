@@ -47,6 +47,41 @@ class AdminServiceTest {
     }
 
     @Test
+    void validateRewardRejectsBlankName() {
+        assertEquals("INVALID_REWARD",
+                assertThrows(ApiException.class,
+                        () -> AdminService.validateReward(new RewardRequest("  ", 10, null, null, null))).getCode());
+    }
+
+    @Test
+    void validateRewardRejectsNullOrNegativeCost() {
+        assertEquals("INVALID_REWARD",
+                assertThrows(ApiException.class,
+                        () -> AdminService.validateReward(new RewardRequest("Latte", null, null, null, null))).getCode());
+        assertEquals("INVALID_REWARD",
+                assertThrows(ApiException.class,
+                        () -> AdminService.validateReward(new RewardRequest("Latte", -1, null, null, null))).getCode());
+    }
+
+    @Test
+    void validateRewardAcceptsValid() {
+        assertDoesNotThrow(() -> AdminService.validateReward(new RewardRequest("Latte", 0, "Coffee", null, true)));
+    }
+
+    @Test
+    void validateCashierRejectsBadEmailOrShortPassword() {
+        assertEquals("INVALID_CASHIER",
+                assertThrows(ApiException.class, () -> AdminService.validateCashier("notanemail", "secret1")).getCode());
+        assertEquals("INVALID_CASHIER",
+                assertThrows(ApiException.class, () -> AdminService.validateCashier("a@b.com", "123")).getCode());
+    }
+
+    @Test
+    void validateCashierAcceptsValid() {
+        assertDoesNotThrow(() -> AdminService.validateCashier("cashier@shop.com", "secret1"));
+    }
+
+    @Test
     void adjustedBalanceRejectsBelowZero() {
         assertEquals("ADJUSTMENT_NEGATIVE_BALANCE",
                 assertThrows(ApiException.class, () -> AdminService.adjustedBalance(5, -10)).getCode());
