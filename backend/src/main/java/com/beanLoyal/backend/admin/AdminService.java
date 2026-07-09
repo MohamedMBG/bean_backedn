@@ -146,6 +146,42 @@ public class AdminService {
     }
 
     /**
+     * List the admin client roster (§10). Capped, unordered — a flat page of up to
+     * {@link #MAX_LIMIT} users. The client sorts/displays; {@code createdAt} is returned so it can.
+     *
+     * @throws ExecutionException   propagated from the Firestore query.
+     * @throws InterruptedException propagated from the Firestore query.
+     */
+    public UserListResponse listUsers(int limit) throws ExecutionException, InterruptedException {
+        // ponytail: no pagination cursor — a single capped page. Add startAfter(...) paging when
+        // the user base outgrows one page. Unordered so users missing createdAt aren't dropped.
+        Query query = firestore.collection("users").limit(cap(limit));
+        List<UserListResponse.UserListItem> users = new ArrayList<>();
+        for (QueryDocumentSnapshot doc : query.get().get().getDocuments()) {
+            users.add(new UserListResponse.UserListItem(doc.getId(), doc.getString("fullName"),
+                    doc.getString("email"), doc.getString("phone"), orZero(doc.getLong("points")),
+                    orZero(doc.getLong("visits")), epochMillis(doc.getTimestamp("createdAt"))));
+        }
+        return new UserListResponse(users);
+    }
+
+    /**
+     * A single user's full profile for the admin client-details header (§10).
+     *
+     * @throws ApiException 404 {@code USER_NOT_FOUND} if the user doc does not exist.
+     */
+    public UserDetailResponse getUser(String uid) throws ExecutionException, InterruptedException {
+        DocumentSnapshot doc = firestore.collection("users").document(uid).get().get();
+        if (!doc.exists()) {
+            throw new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User profile not found");
+        }
+        return new UserDetailResponse(doc.getId(), doc.getString("fullName"), doc.getString("email"),
+                doc.getString("phone"), doc.getString("gender"), doc.getString("address"),
+                doc.getString("birthday"), orZero(doc.getLong("points")), orZero(doc.getLong("visits")),
+                epochMillis(doc.getTimestamp("createdAt")), epochMillis(doc.getTimestamp("lastEarnAt")));
+    }
+
+    /**
      * List a user's most-recent activity entries (§10).
      *
      * @throws ApiException 404 {@code USER_NOT_FOUND} if the user doc does not exist.
