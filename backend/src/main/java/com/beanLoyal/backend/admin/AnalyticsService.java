@@ -106,6 +106,17 @@ public class AnalyticsService {
             }
         }
 
+        // Unique visitors: distinct customers who SCANNED a code in the window (redeemedAt), which is
+        // a different event than code creation, so it needs its own query on the scan timestamp.
+        Set<String> visitors = new java.util.HashSet<>();
+        for (QueryDocumentSnapshot doc : firestore.collection(EarnCodeService.COLLECTION)
+                .whereGreaterThanOrEqualTo(EarnCodeService.REDEEMED_AT, from)
+                .whereLessThan(EarnCodeService.REDEEMED_AT, to)
+                .get().get().getDocuments()) {
+            String scanner = doc.getString(EarnCodeService.REDEEMED_BY);
+            if (scanner != null) visitors.add(scanner);
+        }
+
         // New clients: an aggregate count, no per-doc read needed.
         AggregateQuerySnapshot newClientsSnap = firestore.collection(USERS)
                 .whereGreaterThanOrEqualTo(CREATED_AT, from)
@@ -115,7 +126,7 @@ public class AnalyticsService {
 
         Map<String, String> cashierNames = resolveNames(byCashier.keySet());
         return new AnalyticsResponse(revenue, pointsIssued, pointsRedeemed, gifts, newClients,
-                buildCashierStats(byCashier, cashierNames), buildSeries(byDay));
+                visitors.size(), buildCashierStats(byCashier, cashierNames), buildSeries(byDay));
     }
 
     /** Resolve display names for all cashier uids in ONE batched {@code getAll}, uid as fallback. */
