@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: beanloyal-backend
+    runtime: docker
+    branch: main
+    rootDir: backend
+    plan: free
+    healthCheckPath: /actuator/health
+    envVars:
+      - key: SPRING_PROFILES_ACTIVE
+        value: prod
+      - key: FIREBASE_PROJECT_ID
+        value: loyalty-de0e1
+      - key: FIREBASE_CREDENTIALS_JSON
+        sync: false
