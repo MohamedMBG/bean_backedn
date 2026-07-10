@@ -23,13 +23,13 @@ public final class RedeemCode {
     /** Collection name; the document id IS the redeem code value. */
     public static final String COLLECTION = "redeem_codes";
 
-    static final String UID = "uid";
+    public static final String UID = "uid";
     static final String REWARD_ID = "rewardId";
-    static final String REWARD_NAME = "rewardName";
+    public static final String REWARD_NAME = "rewardName";
     /** Points cost deducted at redeem time; stored so the Phase 7 refund reads it from the code doc. */
     public static final String COST = "cost";
     public static final String STATUS = "status";
-    static final String CREATED_AT = "createdAt";
+    public static final String CREATED_AT = "createdAt";
     static final String EXPIRES_AT = "expiresAt";
     /**
      * Instant the code left {@code pending} (set on complete/cancel/expire), so an admin/support

@@ -343,7 +343,9 @@ Critical path: 0 → 2 → 3 → 5 → 6 → 7 → 11 → 12.
 - `PUT /api/v1/admin/rewards/{id}` — update catalog reward
 - `DELETE /api/v1/admin/rewards/{id}` — delete catalog reward
 - `POST /api/v1/admin/cashiers` — provision cashier (create auth user + `role:cashier` claim)
-- `GET /api/v1/admin/analytics?from=&to=` — dashboard aggregates (revenue, points, gifts, new clients, per-cashier, day series)
+- `GET /api/v1/admin/analytics?from=&to=` — dashboard aggregates (revenue, points, gifts, new clients, unique visitors, per-cashier, day series)
+- `GET /api/v1/admin/earn-codes?limit=` — scan-log rows (earn codes + resolved names)
+- `GET /api/v1/admin/redeem-codes?limit=` — reward-log rows (redeem codes + resolved names)
 - `GET /api/v1/admin/audit` — view audit logs
 
 ---

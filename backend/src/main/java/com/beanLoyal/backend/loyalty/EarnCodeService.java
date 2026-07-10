@@ -53,12 +53,16 @@ public class EarnCodeService {
     /** Collection name; the document id IS the earn code value. */
     public static final String COLLECTION = "earn_codes";
 
-    static final String STATUS = "status";
+    public static final String STATUS = "status";
     public static final String POINTS = "points";
     public static final String AMOUNT_MAD = "amountMAD";
     public static final String CREATED_AT = "createdAt";
     static final String EXPIRES_AT = "expiresAt";
     public static final String CREATED_BY = "createdBy";
+    /** Customer uid who scanned/earned the code (set on burn), for unique-visitor stats. */
+    public static final String REDEEMED_BY = "redeemedByUid";
+    /** Instant the code was scanned (set on burn), for the unique-visitor time window. */
+    public static final String REDEEMED_AT = "redeemedAt";
     static final String STATUS_ACTIVE = "active";
     static final String STATUS_USED = "used";
     public static final String STATUS_REVOKED = "revoked";
@@ -148,11 +152,16 @@ public class EarnCodeService {
      * only after every transaction read is complete — Firestore transactions reject a read issued
      * after any write.
      *
-     * @param transaction live Firestore transaction from the caller.
-     * @param ref         reference returned by a prior {@link #readValid} call in the same transaction.
+     * @param transaction    live Firestore transaction from the caller.
+     * @param ref            reference returned by a prior {@link #readValid} call in the same transaction.
+     * @param redeemedByUid  customer uid who scanned the code — stamped for unique-visitor stats.
+     * @param now            scan instant, stamped as {@code redeemedAt}.
      */
-    void burn(Transaction transaction, DocumentReference ref) {
-        transaction.update(ref, STATUS, STATUS_USED);
+    void burn(Transaction transaction, DocumentReference ref, String redeemedByUid, Instant now) {
+        transaction.update(ref, Map.of(
+                STATUS, STATUS_USED,
+                REDEEMED_BY, redeemedByUid,
+                REDEEMED_AT, toTimestamp(now)));
     }
 
     /** Points granted for a MAD purchase amount at the {@link #POINTS_PER_MAD} ratio (§2.1). */

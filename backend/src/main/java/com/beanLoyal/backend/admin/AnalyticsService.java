@@ -4,14 +4,11 @@ import com.beanLoyal.backend.loyalty.EarnCodeService;
 import com.beanLoyal.backend.rewards.RedeemCode;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.AggregateQuerySnapshot;
-import com.google.cloud.firestore.DocumentReference;
-import com.google.cloud.firestore.DocumentSnapshot;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -32,13 +29,14 @@ import java.util.concurrent.ExecutionException;
 public class AnalyticsService {
 
     private static final String USERS = "users";
-    private static final String USER_NAME = "name";
     private static final String CREATED_AT = "createdAt";
 
     private final Firestore firestore;
+    private final UserNameResolver nameResolver;
 
-    public AnalyticsService(Firestore firestore) {
+    public AnalyticsService(Firestore firestore, UserNameResolver nameResolver) {
         this.firestore = firestore;
+        this.nameResolver = nameResolver;
     }
 
     /** Mutable per-cashier accumulator. */
@@ -106,6 +104,17 @@ public class AnalyticsService {
             }
         }
 
+        // Unique visitors: distinct customers who SCANNED a code in the window (redeemedAt), which is
+        // a different event than code creation, so it needs its own query on the scan timestamp.
+        Set<String> visitors = new java.util.HashSet<>();
+        for (QueryDocumentSnapshot doc : firestore.collection(EarnCodeService.COLLECTION)
+                .whereGreaterThanOrEqualTo(EarnCodeService.REDEEMED_AT, from)
+                .whereLessThan(EarnCodeService.REDEEMED_AT, to)
+                .get().get().getDocuments()) {
+            String scanner = doc.getString(EarnCodeService.REDEEMED_BY);
+            if (scanner != null) visitors.add(scanner);
+        }
+
         // New clients: an aggregate count, no per-doc read needed.
         AggregateQuerySnapshot newClientsSnap = firestore.collection(USERS)
                 .whereGreaterThanOrEqualTo(CREATED_AT, from)
@@ -113,24 +122,9 @@ public class AnalyticsService {
                 .count().get().get();
         long newClients = newClientsSnap.getCount();
 
-        Map<String, String> cashierNames = resolveNames(byCashier.keySet());
+        Map<String, String> cashierNames = nameResolver.resolve(byCashier.keySet());
         return new AnalyticsResponse(revenue, pointsIssued, pointsRedeemed, gifts, newClients,
-                buildCashierStats(byCashier, cashierNames), buildSeries(byDay));
-    }
-
-    /** Resolve display names for all cashier uids in ONE batched {@code getAll}, uid as fallback. */
-    private Map<String, String> resolveNames(Set<String> uids)
-            throws ExecutionException, InterruptedException {
-        if (uids.isEmpty()) return Map.of();
-        DocumentReference[] refs = uids.stream()
-                .map(u -> firestore.collection(USERS).document(u))
-                .toArray(DocumentReference[]::new);
-        Map<String, String> names = new HashMap<>();
-        for (DocumentSnapshot snap : firestore.getAll(refs).get()) {
-            String name = snap.getString(USER_NAME);
-            names.put(snap.getId(), (name == null || name.isBlank()) ? snap.getId() : name);
-        }
-        return names;
+                visitors.size(), buildCashierStats(byCashier, cashierNames), buildSeries(byDay));
     }
 
     private static List<AnalyticsResponse.CashierStat> buildCashierStats(Map<String, Acc> byCashier,

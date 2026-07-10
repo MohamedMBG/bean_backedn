@@ -105,7 +105,7 @@ public class LoyaltyService {
         long totalPoints = orZero(userSnap.getLong("points")) + validCode.points();
         long totalVisits = orZero(userSnap.getLong("visits")) + 1;
 
-        earnCodeService.burn(transaction, validCode.ref());
+        earnCodeService.burn(transaction, validCode.ref(), uid, now);
 
         Map<String, Object> updates = new LinkedHashMap<>();
         updates.put("points", totalPoints);

@@ -14,11 +14,13 @@ import java.util.List;
  * @param pointsRedeemed sum of {@code redeem_codes.cost} for redeems completed in the window.
  * @param gifts          count of redeems completed in the window.
  * @param newClients     count of {@code users} created in the window.
+ * @param uniqueVisitors distinct customers who scanned an earn code in the window.
  * @param cashiers       per-cashier breakdown (issuers of earn codes and/or completers of redeems).
  * @param series         per-UTC-day buckets over the window, for the dashboard chart.
  */
 public record AnalyticsResponse(double revenue, long pointsIssued, long pointsRedeemed, long gifts,
-                                long newClients, List<CashierStat> cashiers, List<DayBucket> series) {
+                                long newClients, long uniqueVisitors, List<CashierStat> cashiers,
+                                List<DayBucket> series) {
 
     /**
      * @param cashierUid       the cashier's uid.
