@@ -62,8 +62,11 @@ public class AdminController {
      * (§2.1/§2.2). The point value is derived server-side from {@code amountMad}. This is what makes
      * the Phase 5 earn endpoint usable. Idempotency-Key required; audit-logged.
      * Response: 200 {@code ApiResponse<CreateEarnCodeResponse>}. Rejection: 400 {@code INVALID_AMOUNT}.
+     * Cashiers issue earn codes at the till, so this route also accepts {@code role=cashier}
+     * (method-level annotation overrides the class-level admin-only rule).
      */
     @PostMapping("/earn-codes")
+    @PreAuthorize("hasAnyRole('ADMIN','CASHIER')")
     public ResponseEntity<String> createEarnCode(@AuthenticationPrincipal CurrentUser user,
                                                  @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                                  @RequestBody CreateEarnCodeRequest request,
@@ -78,8 +81,10 @@ public class AdminController {
      * Idempotency-Key required (server key includes {@code codeId}); audit-logged.
      * Response: 200 {@code ApiResponse<RevokeEarnCodeResponse>}. Rejections: 404
      * {@code EARN_CODE_NOT_FOUND}, 409 {@code EARN_CODE_NOT_ACTIVE}.
+     * Cashiers can cancel a code they just issued, so cashier role is accepted too.
      */
     @PostMapping("/earn-codes/{codeId}/revoke")
+    @PreAuthorize("hasAnyRole('ADMIN','CASHIER')")
     public ResponseEntity<String> revokeEarnCode(@AuthenticationPrincipal CurrentUser user,
                                                  @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
                                                  @PathVariable String codeId,
@@ -110,8 +115,10 @@ public class AdminController {
     /**
      * {@code GET /api/v1/admin/users/search?email=|phone=} — find users by exact email or phone (§10).
      * Response: 200 {@code ApiResponse<UserSearchResponse>}. Rejection: 400 {@code SEARCH_CRITERIA_REQUIRED}.
+     * The cashier redeem screen looks customers up by email/phone, so cashier role is accepted too.
      */
     @GetMapping("/users/search")
+    @PreAuthorize("hasAnyRole('ADMIN','CASHIER')")
     public ApiResponse<UserSearchResponse> searchUsers(@AuthenticationPrincipal CurrentUser user,
                                                        @RequestParam(required = false) String email,
                                                        @RequestParam(required = false) String phone,
