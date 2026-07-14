@@ -24,6 +24,10 @@ import java.util.concurrent.ExecutionException;
  * ponytail: reads every in-range doc (same shape as the old client dashboard did). Fine for a
  * day/week/month window at MVP volume; add server-side pre-aggregation if a window ever spans a
  * very large code count.
+ * <p>
+ * The four Firestore reads (earn window, redeem window, scan window, new-client count) are mutually
+ * independent, so they are dispatched together and awaited afterwards — the round-trips overlap and
+ * endpoint latency is the slowest single query rather than the sum of all four.
  */
 @Service
 public class AnalyticsService {
@@ -62,11 +66,32 @@ public class AnalyticsService {
         Map<String, Acc> byCashier = new LinkedHashMap<>();
         Map<Long, DayAcc> byDay = new LinkedHashMap<>();
 
+        // The four dashboard reads are independent, so fire all of them before awaiting any — the
+        // Firestore round-trips overlap and endpoint latency becomes the slowest single query, not
+        // the sum. Awaited below via .get() in the same order.
+        com.google.api.core.ApiFuture<com.google.cloud.firestore.QuerySnapshot> earnFuture =
+                firestore.collection(EarnCodeService.COLLECTION)
+                        .whereGreaterThanOrEqualTo(EarnCodeService.CREATED_AT, from)
+                        .whereLessThan(EarnCodeService.CREATED_AT, to)
+                        .get();
+        com.google.api.core.ApiFuture<com.google.cloud.firestore.QuerySnapshot> redeemFuture =
+                firestore.collection(RedeemCode.COLLECTION)
+                        .whereGreaterThanOrEqualTo(RedeemCode.TERMINAL_AT, from)
+                        .whereLessThan(RedeemCode.TERMINAL_AT, to)
+                        .get();
+        com.google.api.core.ApiFuture<com.google.cloud.firestore.QuerySnapshot> visitorFuture =
+                firestore.collection(EarnCodeService.COLLECTION)
+                        .whereGreaterThanOrEqualTo(EarnCodeService.REDEEMED_AT, from)
+                        .whereLessThan(EarnCodeService.REDEEMED_AT, to)
+                        .get();
+        com.google.api.core.ApiFuture<AggregateQuerySnapshot> newClientsFuture =
+                firestore.collection(USERS)
+                        .whereGreaterThanOrEqualTo(CREATED_AT, from)
+                        .whereLessThan(CREATED_AT, to)
+                        .count().get();
+
         // Earn codes created in the window → revenue, points issued, per-cashier issuance, day series.
-        for (QueryDocumentSnapshot doc : firestore.collection(EarnCodeService.COLLECTION)
-                .whereGreaterThanOrEqualTo(EarnCodeService.CREATED_AT, from)
-                .whereLessThan(EarnCodeService.CREATED_AT, to)
-                .get().get().getDocuments()) {
+        for (QueryDocumentSnapshot doc : earnFuture.get().getDocuments()) {
             double amount = orZeroD(doc.getDouble(EarnCodeService.AMOUNT_MAD));
             long points = orZero(doc.getLong(EarnCodeService.POINTS));
             revenue += amount;
@@ -91,10 +116,7 @@ public class AnalyticsService {
         // Query by terminalAt range and filter status in-code to avoid a (status, terminalAt) index.
         long pointsRedeemed = 0;
         long gifts = 0;
-        for (QueryDocumentSnapshot doc : firestore.collection(RedeemCode.COLLECTION)
-                .whereGreaterThanOrEqualTo(RedeemCode.TERMINAL_AT, from)
-                .whereLessThan(RedeemCode.TERMINAL_AT, to)
-                .get().get().getDocuments()) {
+        for (QueryDocumentSnapshot doc : redeemFuture.get().getDocuments()) {
             if (!RedeemCode.STATUS_COMPLETED.equals(doc.getString(RedeemCode.STATUS))) continue;
             gifts++;
             pointsRedeemed += orZero(doc.getLong(RedeemCode.COST));
@@ -107,20 +129,13 @@ public class AnalyticsService {
         // Unique visitors: distinct customers who SCANNED a code in the window (redeemedAt), which is
         // a different event than code creation, so it needs its own query on the scan timestamp.
         Set<String> visitors = new java.util.HashSet<>();
-        for (QueryDocumentSnapshot doc : firestore.collection(EarnCodeService.COLLECTION)
-                .whereGreaterThanOrEqualTo(EarnCodeService.REDEEMED_AT, from)
-                .whereLessThan(EarnCodeService.REDEEMED_AT, to)
-                .get().get().getDocuments()) {
+        for (QueryDocumentSnapshot doc : visitorFuture.get().getDocuments()) {
             String scanner = doc.getString(EarnCodeService.REDEEMED_BY);
             if (scanner != null) visitors.add(scanner);
         }
 
         // New clients: an aggregate count, no per-doc read needed.
-        AggregateQuerySnapshot newClientsSnap = firestore.collection(USERS)
-                .whereGreaterThanOrEqualTo(CREATED_AT, from)
-                .whereLessThan(CREATED_AT, to)
-                .count().get().get();
-        long newClients = newClientsSnap.getCount();
+        long newClients = newClientsFuture.get().getCount();
 
         Map<String, String> cashierNames = nameResolver.resolve(byCashier.keySet());
         return new AnalyticsResponse(revenue, pointsIssued, pointsRedeemed, gifts, newClients,

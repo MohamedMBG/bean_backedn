@@ -317,14 +317,18 @@ public class AdminService {
      */
     public UserActivityResponse getUserActivity(String uid, int limit)
             throws ExecutionException, InterruptedException {
-        if (!firestore.collection("users").document(uid).get().get().exists()) {
+        // The existence check and the activities read are independent, so overlap their round-trips:
+        // dispatch both, then validate existence before consuming the activities result.
+        var userFuture = firestore.collection("users").document(uid).get();
+        var activitiesFuture = firestore.collection("users").document(uid).collection("activities")
+                .orderBy("createdAt", Query.Direction.DESCENDING)
+                .limit(cap(limit))
+                .get();
+        if (!userFuture.get().exists()) {
             throw new ApiException(HttpStatus.NOT_FOUND, "USER_NOT_FOUND", "User profile not found");
         }
-        Query query = firestore.collection("users").document(uid).collection("activities")
-                .orderBy("createdAt", Query.Direction.DESCENDING)
-                .limit(cap(limit));
         List<UserActivityResponse.ActivityEntry> entries = new ArrayList<>();
-        for (QueryDocumentSnapshot doc : query.get().get().getDocuments()) {
+        for (QueryDocumentSnapshot doc : activitiesFuture.get().getDocuments()) {
             entries.add(new UserActivityResponse.ActivityEntry(
                     doc.getString("type"), orZero(doc.getLong("pointsDelta")), doc.getString("refId"),
                     orZero(doc.getLong("balanceAfter")), epochMillis(doc.getTimestamp("createdAt"))));
