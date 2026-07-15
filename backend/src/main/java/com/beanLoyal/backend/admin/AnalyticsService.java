@@ -1,5 +1,6 @@
 package com.beanLoyal.backend.admin;
 
+import com.beanLoyal.backend.common.ApiException;
 import com.beanLoyal.backend.loyalty.EarnCodeService;
 import com.beanLoyal.backend.rewards.RedeemCode;
 import com.google.cloud.Timestamp;
@@ -14,6 +15,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeUnit;
+import org.springframework.http.HttpStatus;
 
 /**
  * Aggregates dashboard metrics over a time window from the backend-owned {@code earn_codes},
@@ -21,9 +24,10 @@ import java.util.concurrent.ExecutionException;
  * them in Java — Firestore can't group-by, and the admin app can no longer read these collections
  * directly. Revenue is booked at earn-code creation; gifts/points-redeemed at redeem completion.
  * <p>
- * ponytail: reads every in-range doc (same shape as the old client dashboard did). Fine for a
- * day/week/month window at MVP volume; add server-side pre-aggregation if a window ever spans a
- * very large code count.
+ * Each raw-event query is capped at {@link #MAX_EVENTS_PER_QUERY} plus one sentinel document. If
+ * the cap is exceeded, the request fails rather than returning incomplete metrics. Requests are
+ * also limited to {@link #MAX_WINDOW_DAYS} days. Add write-time daily rollups before increasing
+ * either limit for a higher-volume deployment.
  * <p>
  * The four Firestore reads (earn window, redeem window, scan window, new-client count) are mutually
  * independent, so they are dispatched together and awaited afterwards — the round-trips overlap and
@@ -34,6 +38,8 @@ public class AnalyticsService {
 
     private static final String USERS = "users";
     private static final String CREATED_AT = "createdAt";
+    static final int MAX_WINDOW_DAYS = 31;
+    static final int MAX_EVENTS_PER_QUERY = 10_000;
 
     private final Firestore firestore;
     private final UserNameResolver nameResolver;
@@ -58,6 +64,7 @@ public class AnalyticsService {
 
     public AnalyticsResponse compute(long fromEpochMs, long toEpochMs)
             throws ExecutionException, InterruptedException {
+        validateRange(fromEpochMs, toEpochMs);
         Timestamp from = toTimestamp(fromEpochMs);
         Timestamp to = toTimestamp(toEpochMs);
 
@@ -73,25 +80,34 @@ public class AnalyticsService {
                 firestore.collection(EarnCodeService.COLLECTION)
                         .whereGreaterThanOrEqualTo(EarnCodeService.CREATED_AT, from)
                         .whereLessThan(EarnCodeService.CREATED_AT, to)
+                        .limit(MAX_EVENTS_PER_QUERY + 1)
                         .get();
         com.google.api.core.ApiFuture<com.google.cloud.firestore.QuerySnapshot> redeemFuture =
                 firestore.collection(RedeemCode.COLLECTION)
                         .whereGreaterThanOrEqualTo(RedeemCode.TERMINAL_AT, from)
                         .whereLessThan(RedeemCode.TERMINAL_AT, to)
+                        .limit(MAX_EVENTS_PER_QUERY + 1)
                         .get();
         com.google.api.core.ApiFuture<com.google.cloud.firestore.QuerySnapshot> visitorFuture =
                 firestore.collection(EarnCodeService.COLLECTION)
                         .whereGreaterThanOrEqualTo(EarnCodeService.REDEEMED_AT, from)
                         .whereLessThan(EarnCodeService.REDEEMED_AT, to)
+                        .limit(MAX_EVENTS_PER_QUERY + 1)
                         .get();
         com.google.api.core.ApiFuture<AggregateQuerySnapshot> newClientsFuture =
                 firestore.collection(USERS)
                         .whereGreaterThanOrEqualTo(CREATED_AT, from)
                         .whereLessThan(CREATED_AT, to)
+                        .limit(MAX_EVENTS_PER_QUERY + 1)
                         .count().get();
 
+        List<QueryDocumentSnapshot> earnDocuments = requireWithinBound(earnFuture.get(), "earn codes");
+        List<QueryDocumentSnapshot> redeemDocuments = requireWithinBound(redeemFuture.get(), "redeem codes");
+        List<QueryDocumentSnapshot> visitorDocuments = requireWithinBound(visitorFuture.get(), "earn-code scans");
+        long newClients = requireWithinBound(newClientsFuture.get().getCount(), "new clients");
+
         // Earn codes created in the window → revenue, points issued, per-cashier issuance, day series.
-        for (QueryDocumentSnapshot doc : earnFuture.get().getDocuments()) {
+        for (QueryDocumentSnapshot doc : earnDocuments) {
             double amount = orZeroD(doc.getDouble(EarnCodeService.AMOUNT_MAD));
             long points = orZero(doc.getLong(EarnCodeService.POINTS));
             revenue += amount;
@@ -116,7 +132,7 @@ public class AnalyticsService {
         // Query by terminalAt range and filter status in-code to avoid a (status, terminalAt) index.
         long pointsRedeemed = 0;
         long gifts = 0;
-        for (QueryDocumentSnapshot doc : redeemFuture.get().getDocuments()) {
+        for (QueryDocumentSnapshot doc : redeemDocuments) {
             if (!RedeemCode.STATUS_COMPLETED.equals(doc.getString(RedeemCode.STATUS))) continue;
             gifts++;
             pointsRedeemed += orZero(doc.getLong(RedeemCode.COST));
@@ -129,13 +145,10 @@ public class AnalyticsService {
         // Unique visitors: distinct customers who SCANNED a code in the window (redeemedAt), which is
         // a different event than code creation, so it needs its own query on the scan timestamp.
         Set<String> visitors = new java.util.HashSet<>();
-        for (QueryDocumentSnapshot doc : visitorFuture.get().getDocuments()) {
+        for (QueryDocumentSnapshot doc : visitorDocuments) {
             String scanner = doc.getString(EarnCodeService.REDEEMED_BY);
             if (scanner != null) visitors.add(scanner);
         }
-
-        // New clients: an aggregate count, no per-doc read needed.
-        long newClients = newClientsFuture.get().getCount();
 
         Map<String, String> cashierNames = nameResolver.resolve(byCashier.keySet());
         return new AnalyticsResponse(revenue, pointsIssued, pointsRedeemed, gifts, newClients,
@@ -168,6 +181,43 @@ public class AnalyticsService {
     static long floorToUtcDay(long epochMs) {
         long day = 86_400_000L;
         return Math.floorDiv(epochMs, day) * day;
+    }
+
+    /** Rejects invalid or too-large dashboard windows before Firestore work is dispatched. */
+    static void validateRange(long fromEpochMs, long toEpochMs) {
+        if (fromEpochMs >= toEpochMs) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_RANGE", "from must be before to");
+        }
+        long windowMillis;
+        try {
+            windowMillis = Math.subtractExact(toEpochMs, fromEpochMs);
+        } catch (ArithmeticException ignored) {
+            throw analyticsRangeTooLarge("events");
+        }
+        if (windowMillis > TimeUnit.DAYS.toMillis(MAX_WINDOW_DAYS)) {
+            throw new ApiException(HttpStatus.BAD_REQUEST, "ANALYTICS_RANGE_TOO_LARGE",
+                    "Analytics requests are limited to " + MAX_WINDOW_DAYS + " days");
+        }
+    }
+
+    private static List<QueryDocumentSnapshot> requireWithinBound(
+            com.google.cloud.firestore.QuerySnapshot snapshot, String metric) {
+        if (snapshot.size() > MAX_EVENTS_PER_QUERY) {
+            throw analyticsRangeTooLarge(metric);
+        }
+        return snapshot.getDocuments();
+    }
+
+    private static long requireWithinBound(long count, String metric) {
+        if (count > MAX_EVENTS_PER_QUERY) {
+            throw analyticsRangeTooLarge(metric);
+        }
+        return count;
+    }
+
+    private static ApiException analyticsRangeTooLarge(String metric) {
+        return new ApiException(HttpStatus.BAD_REQUEST, "ANALYTICS_RANGE_TOO_LARGE",
+                "Analytics range contains too many " + metric + "; use a shorter range");
     }
 
     private static Timestamp toTimestamp(long epochMs) {

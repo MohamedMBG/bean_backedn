@@ -55,3 +55,15 @@ Artifact: `build/libs/backend-0.0.1-SNAPSHOT.jar`
 - `GET /health` — health check
 - Actuator under `/actuator/*`
 - Prometheus metrics: `/actuator/prometheus`
+
+## Operational limits
+
+- Admin analytics accepts a maximum 31-day range and 10,000 events per metric. A larger request
+  returns `ANALYTICS_RANGE_TOO_LARGE` rather than partial totals.
+- The expired-redemption job processes up to 100 codes every five minutes; a backlog drains over
+  later runs.
+- Local rate-limit buckets idle for two days are evicted hourly. Limits are per application
+  instance; use a shared store before deploying multiple instances.
+
+See [`../docs/BACKEND_SCALABILITY.md`](../docs/BACKEND_SCALABILITY.md) for rationale, verification,
+and the scale-out plan.

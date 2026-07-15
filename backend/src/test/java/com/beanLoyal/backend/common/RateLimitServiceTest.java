@@ -4,6 +4,7 @@ import io.github.bucket4j.Bandwidth;
 import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -81,5 +82,22 @@ class RateLimitServiceTest {
                 .isInstanceOf(RateLimitException.class);
         assertThatThrownBy(() -> svc.check(other, "1.1.1.1", "user-a"))
                 .isInstanceOf(RateLimitException.class);
+    }
+
+    @Test
+    void evictIdleBuckets_removesOnlyEntriesPastTheTwoDayThreshold() {
+        AtomicLong now = new AtomicLong(0L);
+        RateLimitService svc = new RateLimitService(now::get);
+
+        svc.check(TINY, "1.1.1.1", "user-a");
+        assertThat(svc.bucketCount()).isEqualTo(2);
+
+        now.set(RateLimitService.ENTRY_IDLE_TTL_NANOS - 1);
+        svc.evictIdleBuckets();
+        assertThat(svc.bucketCount()).isEqualTo(2);
+
+        now.incrementAndGet();
+        svc.evictIdleBuckets();
+        assertThat(svc.bucketCount()).isZero();
     }
 }

@@ -44,6 +44,9 @@ import java.util.concurrent.ExecutionException;
 @Service
 public class RedeemCodeService {
 
+    /** Maximum expired codes claimed by one five-minute scheduler run. */
+    static final int EXPIRATION_BATCH_SIZE = 100;
+
     /**
      * Redeem code alphabet — uppercase letters + digits, excluding visually ambiguous characters
      * ({@code 0/O/1/I/L}) so a cashier can type a code read off a screen without transcription
@@ -190,7 +193,9 @@ public class RedeemCodeService {
     public List<String> findExpiredPendingCodeIds(Instant now) throws ExecutionException, InterruptedException {
         Query query = firestore.collection(RedeemCode.COLLECTION)
                 .whereEqualTo(RedeemCode.STATUS, RedeemCode.STATUS_PENDING)
-                .whereLessThan(RedeemCode.EXPIRES_AT, toTimestamp(now));
+                .whereLessThan(RedeemCode.EXPIRES_AT, toTimestamp(now))
+                .orderBy(RedeemCode.EXPIRES_AT)
+                .limit(EXPIRATION_BATCH_SIZE);
         List<String> ids = new ArrayList<>();
         for (QueryDocumentSnapshot doc : query.get().get().getDocuments()) {
             ids.add(doc.getId());
