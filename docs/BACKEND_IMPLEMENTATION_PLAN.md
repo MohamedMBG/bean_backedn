@@ -538,7 +538,30 @@ Remaining:
 
 ---
 
-## 20. References
+## 20. Scalability and quality follow-up (2026-07-15)
+
+Completed:
+
+- Bounded local rate-limit memory: inactive per-IP/per-UID Bucket4j entries are evicted hourly
+  after two days. The retention period exceeds the longest one-day policy refill, so quota behavior
+  is unchanged for active users.
+- Bounded expiration work: each five-minute redemption sweep processes 100 expired codes ordered
+  by expiry; any backlog drains over later runs.
+- Bounded analytics: admin analytics accepts at most 31 days and 10,000 records per metric. It
+  fails with `ANALYTICS_RANGE_TOO_LARGE` instead of returning partial results or scanning without a
+  limit.
+- Verification: `backend\\gradlew.bat test` passed. Unit tests cover rate-limit idle eviction and
+  valid, invalid, oversized, and overflow-prone analytics ranges.
+
+Remaining scaling trigger:
+
+- Before multiple backend instances or analytics volume above 10,000 events in 31 days, replace
+  in-memory rate limits with shared storage and introduce transactionally maintained daily
+  analytics rollups. See `docs/BACKEND_SCALABILITY.md` for the rationale and rollout direction.
+
+---
+
+## 21. References
 
 - Roadmap: `beanLoyal_customer/docs/HYBRID_BACKEND_IMPLEMENTATION_ROADMAP.md`
 - Architecture: `beanLoyal_customer/docs/HYBRID_FIREBASE_BACKEND_PLAN.md`

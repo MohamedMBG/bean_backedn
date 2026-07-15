@@ -234,8 +234,10 @@ public class AdminController {
     /**
      * {@code GET /api/v1/admin/analytics?from=&to=} — aggregated dashboard metrics over the
      * {@code [from, to)} epoch-millis window (§10): revenue, points issued/redeemed, gifts, new
-     * clients, per-cashier breakdown, per-day series. Response: 200 {@code ApiResponse<AnalyticsResponse>}.
-     * Rejection: 400 {@code INVALID_RANGE} if {@code from >= to}.
+     * clients, per-cashier breakdown, per-day series. Requests are limited to 31 days and 10,000
+     * raw records per metric so reporting cannot start an unbounded Firestore scan. Response: 200
+     * {@code ApiResponse<AnalyticsResponse>}. Rejection: 400 {@code INVALID_RANGE} or
+     * {@code ANALYTICS_RANGE_TOO_LARGE}.
      */
     @GetMapping("/analytics")
     public ApiResponse<AnalyticsResponse> analytics(@AuthenticationPrincipal CurrentUser user,
@@ -244,10 +246,6 @@ public class AdminController {
                                                     HttpServletRequest http)
             throws ExecutionException, InterruptedException {
         rateLimit(user, http);
-        if (from >= to) {
-            throw new com.beanLoyal.backend.common.ApiException(
-                    org.springframework.http.HttpStatus.BAD_REQUEST, "INVALID_RANGE", "from must be before to");
-        }
         return ApiResponse.of(analyticsService.compute(from, to));
     }
 

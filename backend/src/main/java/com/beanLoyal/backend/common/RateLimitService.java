@@ -3,45 +3,53 @@ package com.beanLoyal.backend.common;
 import io.github.bucket4j.Bandwidth;
 import io.github.bucket4j.Bucket;
 import io.github.bucket4j.ConsumptionProbe;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.TimeUnit;
+import java.util.function.LongSupplier;
 
 /**
  * In-memory token-bucket rate limiter backed by Bucket4j.
  * <p>
- * Buckets are keyed by {@code policy identity + subject (IP or UID)}. Each request that must
- * respect a policy calls {@link #check(RateLimitPolicy, String, String)} once — the service
- * consumes one token from the IP bucket AND one from the UID bucket (when a UID is available)
- * and throws {@link RateLimitException} if either is empty.
+ * Buckets are keyed by policy identity and subject (IP or UID). Each protected request consumes a
+ * token from the IP bucket and, when a Firebase UID is available, its UID bucket. The service
+ * throws {@link RateLimitException} when either bucket is exhausted.
  * <p>
- * Storage is a {@link ConcurrentHashMap} — fine for a single Render instance (the current
- * deployment target per {@code BACKEND_IMPLEMENTATION_PLAN.md §12}). Distributed enforcement
- * would require moving buckets to Redis; deferred until Render scales beyond one instance.
- * <p>
- * The map grows unbounded in the pathological case of a very large distinct-IP or distinct-UID
- * set; each entry is a few hundred bytes and Bucket4j itself has no per-bucket timer, so idle
- * entries are cheap. Eviction can be layered on later if RSS becomes a concern — no need now.
+ * Storage is local to one backend instance. This is suitable for the current single-instance
+ * deployment but must move to a shared store such as Redis before horizontal scaling. An hourly
+ * sweep evicts buckets unused for two days, preventing high-cardinality traffic from growing the
+ * map forever. Two days exceeds the one-day birthday-policy refill interval, so cleanup cannot
+ * reset an active quota.
  */
 @Service
 public class RateLimitService {
 
-    private final ConcurrentMap<String, Bucket> buckets = new ConcurrentHashMap<>();
+    /** Idle retention exceeds the longest configured Bucket4j refill interval. */
+    static final long ENTRY_IDLE_TTL_NANOS = TimeUnit.DAYS.toNanos(2);
+
+    private final ConcurrentMap<String, BucketEntry> buckets = new ConcurrentHashMap<>();
+    private final LongSupplier nanoTime;
+
+    /** Creates the production limiter using the JVM's monotonic clock for eviction timing. */
+    public RateLimitService() {
+        this(System::nanoTime);
+    }
+
+    /** Package-private deterministic-time constructor used by unit tests. */
+    RateLimitService(LongSupplier nanoTime) {
+        this.nanoTime = nanoTime;
+    }
 
     /**
-     * Consume one token from the policy's IP bucket and, if {@code uid} is non-null,
-     * one token from the policy's UID bucket.
+     * Consumes one token from the IP bucket and, when present, one from the UID bucket.
      *
-     * @param policy    rate-limit policy for the route class
-     * @param clientIp  remote address of the caller — never null; use {@code "unknown"} if the
-     *                  transport truly cannot provide one (rare)
-     * @param uid       Firebase UID of the authenticated caller, or {@code null} for anonymous
-     *                  requests (pre-auth or public endpoints that still want IP throttling)
-     * @throws RateLimitException if either the IP-side or UID-side bucket is empty; the
-     *                            {@code retryAfterSeconds} value is the larger of the two
-     *                            wait times so the client's next attempt clears both sides
+     * @param policy rate-limit policy for the route class.
+     * @param clientIp caller address, or {@code "unknown"} when unavailable.
+     * @param uid verified Firebase UID, or {@code null} for an anonymous caller.
+     * @throws RateLimitException when either bucket has no token; the retry value waits for both.
      */
     public void check(RateLimitPolicy policy, String clientIp, String uid) {
         long retryAfterSec = 0L;
@@ -64,17 +72,48 @@ public class RateLimitService {
     }
 
     private ConsumptionProbe probe(RateLimitPolicy policy, Bandwidth bandwidth, String side, String subject) {
-        // Key by policy reference identity so two policies with numerically identical bandwidths
-        // still receive separate buckets. Reference identity is safe: RateLimitPolicy instances
-        // are shared (static constants or singletons), so the same policy always hashes the same.
         String key = side + ":" + System.identityHashCode(policy) + ":" + subject;
-        Bucket bucket = buckets.computeIfAbsent(key, k -> Bucket.builder().addLimit(bandwidth).build());
-        return bucket.tryConsumeAndReturnRemaining(1);
+        long now = nanoTime.getAsLong();
+        BucketEntry entry = buckets.compute(key, (ignored, existing) -> {
+            if (existing == null) {
+                return new BucketEntry(Bucket.builder().addLimit(bandwidth).build(), now);
+            }
+            existing.lastAccessNanos = now;
+            return existing;
+        });
+        return entry.bucket.tryConsumeAndReturnRemaining(1);
+    }
+
+    /** Removes local buckets untouched for two days, keeping high-cardinality traffic bounded. */
+    @Scheduled(fixedDelay = 1, timeUnit = TimeUnit.HOURS)
+    public void evictIdleBuckets() {
+        long now = nanoTime.getAsLong();
+        buckets.forEach((key, entry) -> buckets.computeIfPresent(key, (ignored, current) ->
+                isIdle(current, now) ? null : current));
+    }
+
+    /** Visible to package tests to verify the bounded-memory invariant without reflection. */
+    int bucketCount() {
+        return buckets.size();
+    }
+
+    private static boolean isIdle(BucketEntry entry, long now) {
+        return now - entry.lastAccessNanos >= ENTRY_IDLE_TTL_NANOS;
     }
 
     private static long secondsUntilRefill(ConsumptionProbe probe) {
-        // Round up so Retry-After never asks the client to retry before a token exists.
         long seconds = TimeUnit.NANOSECONDS.toSeconds(probe.getNanosToWaitForRefill());
         return Math.max(1L, seconds);
+    }
+
+    /** Bucket paired with its last monotonic access time. */
+    private static final class BucketEntry {
+        private final Bucket bucket;
+        private volatile long lastAccessNanos;
+
+        private BucketEntry(Bucket bucket, long lastAccessNanos) {
+            this.bucket = bucket;
+            this.lastAccessNanos = lastAccessNanos;
+        }
     }
 }
