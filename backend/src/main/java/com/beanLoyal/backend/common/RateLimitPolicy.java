@@ -60,6 +60,18 @@ public record RateLimitPolicy(Bandwidth ipBandwidth, Bandwidth uidBandwidth) {
             perMinute(10)
     );
 
+    /** Customer menu-interest events: 120/min per IP, 30/min per UID. */
+    public static final RateLimitPolicy INTEREST_EVENT = new RateLimitPolicy(
+            perMinute(120),
+            perMinute(30)
+    );
+
+    /** Admin push delivery: 10/min per IP and per admin UID. Preview uses CASHIER_ADMIN. */
+    public static final RateLimitPolicy PUSH_SEND = new RateLimitPolicy(
+            perMinute(10),
+            perMinute(10)
+    );
+
     private static Bandwidth perMinute(long count) {
         return Bandwidth.builder().capacity(count).refillGreedy(count, Duration.ofMinutes(1)).build();
     }
