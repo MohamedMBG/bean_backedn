@@ -568,3 +568,41 @@ Remaining scaling trigger:
 - Firebase Admin SDK: https://github.com/firebase/firebase-admin-java
 - Render Java docs: https://render.com/docs/deploy-spring-boot
 - Spring Security ref: https://docs.spring.io/spring-security/reference/
+
+---
+
+## 22. Segmented Push Campaigns (2026-07-18)
+
+Progress: implemented; automated local verification complete.
+
+Completed:
+
+- Replaced the admin app's unrelated external push API dependency with authenticated backend
+  `/admin/push/preview` and `/admin/push/send` endpoints.
+- Added one shared audience selector for gender, inclusive age, birthday today, location, top menu
+  interest, recent visit, lapsed visit, and send-to-all.
+- Added bounded Firestore reads (5,000 users / 10,000 devices), in-memory UID join, token
+  deduplication, 500-token FCM batching, and permanent invalid-token cleanup.
+- Added admin-role enforcement, send rate limiting, content-free audit records, and campaign-specific
+  idempotency that prevents an uncertain external send from being repeated.
+- Added authenticated customer interest aggregation and logout device unregistration.
+- Added deterministic `AudienceMatcherTest` coverage for combined filters, inclusive age,
+  Morocco-local and leap-day birthdays, recent/lapsed boundary behavior, never-visited users, and
+  invalid ranges.
+
+Verification:
+
+- Backend `gradlew test`: passed after the Morocco-local birthday regression was added.
+- Customer Android `gradlew test`: passed for debug and release unit tests.
+- Admin Android `compileDebugJavaWithJavac`: passed; feature-specific
+  `InboxRepositoryTest`: passed. The full admin suite remains red only in three existing
+  `DashboardViewModelTest` cases because Mockito inline cannot initialize on the local Java 21 VM;
+  the failures do not execute inbox/push code.
+
+Remaining deployment/QA:
+
+- Deploy the backend before releasing either Android app; the new clients depend on these routes.
+- Perform a staging FCM smoke test using at least two real devices and verify foreground/background
+  delivery plus notification permission behavior on Android 13+.
+- Current selector bounds are suitable for the present tenant size. Add paged campaign jobs or
+  segment rollups before either collection exceeds its documented cap.

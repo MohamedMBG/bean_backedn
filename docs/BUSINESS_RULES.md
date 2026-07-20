@@ -377,8 +377,9 @@ MVP has 3 categories: regular / cashier / admin. A role array adds set-intersect
 
 ## 8. Device Registration (LOCKED 2026-07-06 — IMPLEMENTED Phase 9)
 
-Implemented by `push/DeviceController` (`POST /api/v1/push/registerDevice`) + `push/DeviceService` +
-`push/Device`. Registration only — FCM *send* is out of scope.
+Implemented by `push/DeviceController` (`POST /api/v1/push/registerDevice` and
+`POST /api/v1/push/unregisterDevice`) + `push/DeviceService` + `push/Device`. Campaign delivery
+and segmentation rules are defined in §9.
 
 ### 8.1 Document keying
 
@@ -423,6 +424,51 @@ Implemented by `push/DeviceController` (`POST /api/v1/push/registerDevice`) + `p
 | `INVALID_PLATFORM` | 400 | `platform` (lower-cased) not in `{android, ios, web}` |
 | `RATE_LIMITED` | 429 | `RateLimitPolicy.REGISTER_DEVICE` bucket hit (§4) |
 
-**Open (owner decision):** no unregister/logout route yet — after logout a device doc lingers until
-the next registration, so a logged-out user may keep receiving pushes. Add a disable-on-logout path
-if that matters.
+Logout calls the authenticated unregister route before Firebase sign-out. The route verifies device
+ownership, sets `disabled=true`, deletes `fcmToken`, and is naturally idempotent when the document is
+already missing. This prevents a logged-out member from continuing to receive campaigns.
+
+---
+
+## 9. Segmented Admin Push Campaigns (LOCKED 2026-07-18 — IMPLEMENTED)
+
+### 9.1 Endpoints and authorization
+
+- `POST /api/v1/admin/push/preview` is admin-only and returns matching profiles, reachable users,
+  and active device count without sending.
+- `POST /api/v1/admin/push/send` is admin-only, requires `Idempotency-Key`, sends via Firebase Cloud
+  Messaging, and returns device-level success/failure totals.
+- `POST /api/v1/push/interest` is available to an authenticated customer only for their own UID.
+  It atomically increments a normalized category in `users.interestScores` and maintains
+  `users.topInterest`.
+
+### 9.2 Audience rules
+
+All active dimensions use **AND** semantics. Multiple values inside one dimension use **OR**
+semantics. `sendToAll=true` intentionally ignores all filters.
+
+| Filter | Authoritative field / rule |
+|---|---|
+| Gender | `users.gender`, case-insensitive exact match |
+| Age | Inclusive range calculated in `Africa/Casablanca` from ISO `users.birthday` |
+| Birthday today | Month/day from `users.birthday`; Feb 29 matches Feb 28 in non-leap years |
+| Location | Case-insensitive neighborhood fragment in `users.address`; `other` excludes known neighborhoods |
+| Interest | Case-insensitive exact match against backend-maintained `users.topInterest` |
+| Recent visit | `users.lastEarnAt` within N days; a successful earn is the visit source of truth |
+| Lapsed visit | `users.lastEarnAt` older than N days; never-visited members also match |
+
+Missing or malformed fields do not match filters that require those fields. Preview and send invoke
+the same selector, preventing recipient-count drift.
+
+### 9.3 Delivery, bounds, and privacy
+
+- Each campaign loads at most 5,000 user documents and 10,000 device documents, then joins by UID
+  in memory. Larger sets fail explicitly instead of silently sending to a partial audience.
+- Active tokens are deduplicated and sent in FCM batches of at most 500. Tokens reported as
+  unregistered are deleted and their device documents disabled.
+- The `PUSH_SEND` rate limit is 10 requests per minute per IP and per admin UID. Interest events are
+  limited to 120/min per IP and 30/min per UID.
+- Campaign audit entries contain actor, campaign id, and aggregate counts only. Notification text,
+  FCM tokens, birthdays, gender, addresses, and interest profiles are not written to audit logs.
+- A reserved campaign is never automatically retried after an uncertain FCM side effect; this
+  avoids duplicate notifications. A completed idempotent replay returns its stored result.

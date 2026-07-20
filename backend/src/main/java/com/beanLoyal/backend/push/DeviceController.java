@@ -25,10 +25,13 @@ import java.util.concurrent.ExecutionException;
 public class DeviceController {
 
     private final DeviceService deviceService;
+    private final InterestService interestService;
     private final RateLimitService rateLimitService;
 
-    public DeviceController(DeviceService deviceService, RateLimitService rateLimitService) {
+    public DeviceController(DeviceService deviceService, InterestService interestService,
+                            RateLimitService rateLimitService) {
         this.deviceService = deviceService;
+        this.interestService = interestService;
         this.rateLimitService = rateLimitService;
     }
 
@@ -62,5 +65,34 @@ public class DeviceController {
             throws ExecutionException, InterruptedException {
         rateLimitService.check(RateLimitPolicy.REGISTER_DEVICE, ClientIpResolver.resolve(httpRequest), user.uid());
         return ApiResponse.of(deviceService.register(user.uid(), request));
+    }
+
+    /**
+     * {@code POST /api/v1/push/unregisterDevice}: disable and redact this install's token before
+     * logout. Authentication is required so ownership can be checked. The operation is naturally
+     * idempotent and rate-limited with the device-registration bucket.
+     */
+    @PostMapping("/unregisterDevice")
+    public ApiResponse<UnregisterDeviceResponse> unregisterDevice(
+            @AuthenticationPrincipal CurrentUser user,
+            @RequestBody UnregisterDeviceRequest request,
+            HttpServletRequest httpRequest) {
+        rateLimitService.check(RateLimitPolicy.REGISTER_DEVICE,
+                ClientIpResolver.resolve(httpRequest), user.uid());
+        return ApiResponse.of(deviceService.unregister(user.uid(), request));
+    }
+
+    /**
+     * {@code POST /api/v1/push/interest}: record the caller's menu-category behavior for interest
+     * segmentation. The caller UID comes exclusively from the verified token; rate limiting bounds
+     * click spam. Response contains only the caller's aggregate category score.
+     */
+    @PostMapping("/interest")
+    public ApiResponse<InterestEventResponse> recordInterest(@AuthenticationPrincipal CurrentUser user,
+                                                             @RequestBody InterestEventRequest request,
+                                                             HttpServletRequest httpRequest) {
+        rateLimitService.check(RateLimitPolicy.INTEREST_EVENT,
+                ClientIpResolver.resolve(httpRequest), user.uid());
+        return ApiResponse.of(interestService.record(user.uid(), request));
     }
 }

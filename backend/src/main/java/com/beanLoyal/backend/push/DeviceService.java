@@ -1,6 +1,7 @@
 package com.beanLoyal.backend.push;
 
 import com.google.cloud.firestore.Firestore;
+import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.SetOptions;
 import org.springframework.stereotype.Service;
 
@@ -57,5 +58,43 @@ public class DeviceService {
                 .set(Device.doc(uid, req.fcmToken(), platform, now), SetOptions.merge())
                 .get();
         return new RegisterDeviceResponse(req.deviceId(), now.toEpochMilli());
+    }
+
+    /**
+     * Disable the caller's device on logout and delete its FCM token. The ownership check prevents
+     * one authenticated user from disabling another user's installation even if a device id leaks.
+     * Missing devices are treated as already disabled, making logout retries naturally idempotent.
+     *
+     * @param uid verified caller UID.
+     * @param req client stable device id.
+     * @return disabled state for the device.
+     */
+    public UnregisterDeviceResponse unregister(String uid, UnregisterDeviceRequest req) {
+        Device.validateDeviceId(req == null ? null : req.deviceId());
+        var ref = firestore.collection(Device.COLLECTION).document(req.deviceId());
+        try {
+            return firestore.runTransaction(transaction -> {
+                var snapshot = transaction.get(ref).get();
+                if (!snapshot.exists()) return new UnregisterDeviceResponse(req.deviceId(), true);
+                String owner = snapshot.getString(Device.UID);
+                if (owner != null && !owner.equals(uid)) {
+                    throw new com.beanLoyal.backend.common.ApiException(
+                            org.springframework.http.HttpStatus.FORBIDDEN,
+                            "DEVICE_NOT_OWNED", "Device does not belong to the authenticated user");
+                }
+                java.util.Map<String, Object> updates = new java.util.LinkedHashMap<>();
+                updates.put(Device.DISABLED, true);
+                updates.put(Device.FCM_TOKEN, FieldValue.delete());
+                updates.put(Device.LAST_SEEN_AT, FieldValue.serverTimestamp());
+                transaction.update(ref, updates);
+                return new UnregisterDeviceResponse(req.deviceId(), true);
+            }).get();
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("Device unregistration failed", e.getCause());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Device unregistration interrupted", e);
+        }
     }
 }
