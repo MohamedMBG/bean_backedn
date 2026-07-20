@@ -13,10 +13,6 @@ import com.google.cloud.firestore.FieldValue;
 import com.google.cloud.firestore.Firestore;
 import com.google.cloud.firestore.Query;
 import com.google.cloud.firestore.QueryDocumentSnapshot;
-import com.google.firebase.auth.AuthErrorCode;
-import com.google.firebase.auth.FirebaseAuth;
-import com.google.firebase.auth.FirebaseAuthException;
-import com.google.firebase.auth.UserRecord;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -48,16 +44,14 @@ public class AdminService {
     static final int SEARCH_LIMIT = 20;
 
     private final Firestore firestore;
-    private final FirebaseAuth firebaseAuth;
     private final EarnCodeService earnCodeService;
     private final AuditService auditService;
     private final ActivityService activityService;
     private final Clock clock;
 
-    public AdminService(Firestore firestore, FirebaseAuth firebaseAuth, EarnCodeService earnCodeService,
+    public AdminService(Firestore firestore, EarnCodeService earnCodeService,
                         AuditService auditService, ActivityService activityService, Clock clock) {
         this.firestore = firestore;
-        this.firebaseAuth = firebaseAuth;
         this.earnCodeService = earnCodeService;
         this.auditService = auditService;
         this.activityService = activityService;
@@ -185,65 +179,6 @@ public class AdminService {
         auditService.record(tx, actorUid, "reward.delete", rewardId, null, null);
         return new IdempotencyService.BusinessOutcome(HttpStatus.OK,
                 ApiResponse.of(new RewardDeletedResponse(rewardId, true)));
-    }
-
-    /**
-     * Provision a cashier account (§5b/§10): create the Firebase Auth user, grant the
-     * {@code role: cashier} custom claim (mapped to {@code ROLE_CASHIER} by {@code FirebaseAuthFilter}),
-     * and write the {@code users/{uid}} profile doc via the Admin SDK. NOT a Firestore transaction —
-     * the auth-account creation is its own idempotency guard (a duplicate email fails). Audited via
-     * the non-transactional {@link AuditService#record(String, String, String, String, java.util.Map)}.
-     * The password is used once to create the account and is never stored or logged.
-     *
-     * @throws ApiException 400 {@code INVALID_CASHIER} (bad email / short password), 409
-     *                      {@code CASHIER_EMAIL_EXISTS}, 500 {@code CASHIER_CLAIM_FAILED}.
-     */
-    public CreateCashierResponse createCashier(String actorUid, String email, String password, String name)
-            throws ExecutionException, InterruptedException {
-        validateCashier(email, password);
-        String cleanEmail = email.trim();
-
-        UserRecord.CreateRequest req = new UserRecord.CreateRequest().setEmail(cleanEmail).setPassword(password);
-        if (name != null && !name.isBlank()) req.setDisplayName(name.trim());
-
-        UserRecord user;
-        try {
-            user = firebaseAuth.createUser(req);
-        } catch (FirebaseAuthException e) {
-            if (e.getAuthErrorCode() == AuthErrorCode.EMAIL_ALREADY_EXISTS) {
-                throw new ApiException(HttpStatus.CONFLICT, "CASHIER_EMAIL_EXISTS",
-                        "That email is already registered");
-            }
-            throw new ApiException(HttpStatus.BAD_REQUEST, "INVALID_CASHIER",
-                    "Could not create the cashier account");
-        }
-
-        try {
-            firebaseAuth.setCustomUserClaims(user.getUid(), Map.of("role", "cashier"));
-        } catch (FirebaseAuthException e) {
-            // Roll back the orphaned auth account so a retry with the same email can succeed rather
-            // than dead-end on EMAIL_ALREADY_EXISTS.
-            try {
-                firebaseAuth.deleteUser(user.getUid());
-            } catch (FirebaseAuthException ignored) {
-                // Best-effort cleanup; surface the original failure regardless.
-            }
-            throw new ApiException(HttpStatus.INTERNAL_SERVER_ERROR, "CASHIER_CLAIM_FAILED",
-                    "Account created but role assignment failed — please retry");
-        }
-
-        Map<String, Object> doc = new java.util.HashMap<>();
-        doc.put("uid", user.getUid());
-        doc.put("name", name);
-        doc.put("email", cleanEmail);
-        doc.put("role", "cashier");
-        doc.put("isActive", true);
-        doc.put("createdAt", FieldValue.serverTimestamp());
-        firestore.collection("users").document(user.getUid()).set(doc).get();
-
-        auditService.record(actorUid, "cashier.create", user.getUid(), user.getUid(),
-                Map.of("email", cleanEmail));
-        return new CreateCashierResponse(user.getUid(), cleanEmail);
     }
 
     // ---- reads (non-transactional) ----------------------------------------------------------

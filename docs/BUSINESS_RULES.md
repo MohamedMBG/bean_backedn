@@ -14,6 +14,12 @@ Implemented by `common/IdempotencyService.execute(...)`: endpoints pass their bu
 `TransactionalWork`; the record write and the economy write share one Firestore transaction.
 `IdempotencyException` maps to 400 `IDEMPOTENCY_KEY_REQUIRED` / 409 `IDEMPOTENCY_KEY_REUSED`.
 
+`POST /api/v1/admin/cashiers` also obeys this contract, but uses
+`CashierProvisioningService` because Firebase Auth cannot join a Firestore transaction. Its staged
+ledger creates a deterministic Auth UID, commits the profile plus audit before granting the
+privileged claim, and resumes the last durable stage when the same key is retried. The password is
+included only in the request hash and is never persisted or logged.
+
 ### Header
 - Name: `Idempotency-Key`
 - Value: client-generated UUID v4
@@ -319,11 +325,13 @@ FirebaseAuth.getInstance().setCustomUserClaims(
 ```
 Run from a one-off `CommandLineRunner` or future admin endpoint (#20).
 
-**Implemented (Phase 10):** cashier provisioning is now live via `POST /api/v1/admin/cashiers`
-(`AdminService.createCashier`) — admin-only; creates the Firebase Auth user, sets the
-`role: cashier` claim, and writes the `users/{uid}` doc. On claim-set failure it rolls back the
-orphaned auth user so a retry can reuse the email. Admin provisioning (`role: admin`) is still
-manual (Option A/B) — no self-serve endpoint by design.
+**Implemented (Phase 10):** cashier provisioning is live via `POST /api/v1/admin/cashiers`
+(`CashierProvisioningService`) — admin-only and `Idempotency-Key` required. It reserves the request,
+creates/reuses a deterministic unprivileged Firebase Auth user, atomically writes the
+`users/{uid}` profile plus audit record, then grants `role: cashier` and marks the operation
+complete. A timeout or failure is resumed with the same key rather than dead-ending on duplicate
+email. Admin provisioning (`role: admin`) is still manual (Option A/B) — no self-serve endpoint by
+design.
 
 **Option B — Node CLI:**
 ```bash

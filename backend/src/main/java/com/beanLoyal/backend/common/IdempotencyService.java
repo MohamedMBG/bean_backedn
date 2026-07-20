@@ -71,7 +71,7 @@ public class IdempotencyService {
     private static final Duration TTL = Duration.ofHours(24);
 
     /** Response header set on a replayed (deduplicated) response so clients and logs can tell it apart. */
-    static final String REPLAY_HEADER = "Idempotency-Replayed";
+    public static final String REPLAY_HEADER = "Idempotency-Replayed";
 
     private final Firestore firestore;
     private final ObjectMapper objectMapper;
@@ -239,11 +239,12 @@ public class IdempotencyService {
     }
 
     /** Server-side dedup key: {@code sha256(uid + ":" + idempotencyKey + ":" + path)} (§1 step 1). */
-    static String serverKey(String uid, String idempotencyKey, String path) {
+    public static String serverKey(String uid, String idempotencyKey, String path) {
         return sha256Hex(uid + ":" + idempotencyKey + ":" + path);
     }
 
-    static String sha256Hex(String input) {
+    /** Returns the lowercase SHA-256 hex digest used for request and response fingerprints. */
+    public static String sha256Hex(String input) {
         try {
             byte[] hash = MessageDigest.getInstance("SHA-256").digest(input.getBytes(StandardCharsets.UTF_8));
             return HexFormat.of().formatHex(hash);
