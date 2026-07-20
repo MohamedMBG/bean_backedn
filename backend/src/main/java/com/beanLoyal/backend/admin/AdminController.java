@@ -29,8 +29,8 @@ import java.util.concurrent.ExecutionException;
  * Every route requires Firebase authentication AND the {@code admin} role — the class-level
  * {@code @PreAuthorize("hasRole('ADMIN')")} rejects any other caller with 403 {@code FORBIDDEN}
  * (role mapped in {@code FirebaseAuthFilter}, §5b; {@code @EnableMethodSecurity} on). All routes are
- * rate-limited by {@link RateLimitPolicy#CASHIER_ADMIN}; the three write routes are idempotency-guarded
- * and write an atomic {@code audit} entry.
+ * rate-limited by {@link RateLimitPolicy#CASHIER_ADMIN}; write routes are idempotency-guarded and
+ * write an audit entry atomically with their Firestore-owned state.
  */
 @ApiV1
 @RequestMapping("/admin")
@@ -38,15 +38,18 @@ import java.util.concurrent.ExecutionException;
 public class AdminController {
 
     private final AdminService adminService;
+    private final CashierProvisioningService cashierProvisioningService;
     private final AnalyticsService analyticsService;
     private final AdminLogsService logsService;
     private final IdempotencyService idempotencyService;
     private final RateLimitService rateLimitService;
 
-    public AdminController(AdminService adminService, AnalyticsService analyticsService,
-                          AdminLogsService logsService, IdempotencyService idempotencyService,
-                          RateLimitService rateLimitService) {
+    public AdminController(AdminService adminService, CashierProvisioningService cashierProvisioningService,
+                           AnalyticsService analyticsService,
+                           AdminLogsService logsService, IdempotencyService idempotencyService,
+                           RateLimitService rateLimitService) {
         this.adminService = adminService;
+        this.cashierProvisioningService = cashierProvisioningService;
         this.analyticsService = analyticsService;
         this.logsService = logsService;
         this.idempotencyService = idempotencyService;
@@ -176,18 +179,26 @@ public class AdminController {
     /**
      * {@code POST /api/v1/admin/cashiers} — provision a cashier account (§5b/§10): creates the
      * Firebase Auth user, grants the {@code role: cashier} custom claim, and writes the user doc.
-     * Not idempotency-keyed — the auth account's email uniqueness is the natural guard. Audit-logged.
-     * Response: 200 {@code ApiResponse<CreateCashierResponse>}. Rejections: 400 {@code INVALID_CASHIER},
-     * 409 {@code CASHIER_EMAIL_EXISTS}.
+     * Idempotency-Key required. Firebase Auth and Firestore are coordinated as a resumable workflow:
+     * the profile + audit commit before the privileged role is granted, and a retry resumes safely.
+     * Response: 200 {@code ApiResponse<CreateCashierResponse>}. Rejections: 400
+     * {@code INVALID_CASHIER}/{@code IDEMPOTENCY_KEY_REQUIRED}, 409
+     * {@code CASHIER_EMAIL_EXISTS}/{@code IDEMPOTENCY_KEY_REUSED}.
      */
     @PostMapping("/cashiers")
-    public ApiResponse<CreateCashierResponse> createCashier(@AuthenticationPrincipal CurrentUser user,
-                                                            @RequestBody CreateCashierRequest request,
-                                                            HttpServletRequest http)
-            throws ExecutionException, InterruptedException {
+    public ResponseEntity<ApiResponse<CreateCashierResponse>> createCashier(
+            @AuthenticationPrincipal CurrentUser user,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
+            @RequestBody CreateCashierRequest request,
+            HttpServletRequest http) {
         rateLimit(user, http);
-        return ApiResponse.of(adminService.createCashier(user.uid(), request.email(),
-                request.password(), request.name()));
+        CashierProvisioningService.ProvisioningResult result =
+                cashierProvisioningService.provision(user.uid(), idempotencyKey, request);
+        ResponseEntity.BodyBuilder response = ResponseEntity.ok();
+        if (result.replayed()) {
+            response.header(IdempotencyService.REPLAY_HEADER, "true");
+        }
+        return response.body(ApiResponse.of(result.response()));
     }
 
     /**

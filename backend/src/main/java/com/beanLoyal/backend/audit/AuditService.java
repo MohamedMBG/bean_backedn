@@ -80,7 +80,7 @@ public class AuditService {
 
     /**
      * Append one audit entry OUTSIDE any transaction — for privileged actions that aren't a Firestore
-     * transaction (e.g. cashier provisioning, which is a Firebase Auth operation). Blocks on the write.
+     * transaction (e.g. a completed external push delivery). Blocks on the write.
      * Still append-only: only ever {@code set}s a fresh auto-id document.
      *
      * @param actorUid  verified Firebase UID of the privileged caller.

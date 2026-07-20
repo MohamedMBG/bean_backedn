@@ -56,6 +56,11 @@ Artifact: `build/libs/backend-0.0.1-SNAPSHOT.jar`
 - Actuator under `/actuator/*`
 - Prometheus metrics: `/actuator/prometheus`
 
+`POST /api/v1/admin/cashiers` requires an admin Firebase bearer token and an
+`Idempotency-Key` header. Reuse the same key when retrying the same email/password/name request;
+completed replays return `Idempotency-Replayed: true` and never create another Auth account or
+audit entry.
+
 ## Operational limits
 
 - Admin analytics accepts a maximum 31-day range and 10,000 events per metric. A larger request

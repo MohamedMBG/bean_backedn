@@ -227,7 +227,7 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 7 | Cashier role | ✅ enforced via `@PreAuthorize` (role mapping already in `FirebaseAuthFilter`, §5b) |
 | 8 | Activity canonical schema | ✅ `activity/ActivityService` canonical shape adopted feed-wide: earn (`+pts`), redeem (`-cost`), birthday (`+50`), cancel/expire (`+cost`) all write `users/{uid}/activities/{id}` in-transaction. No backend read endpoint — the client reads its own feed directly from Firestore (Phase 1 rules permit owner read); admin reads via Phase 10 |
 | 9 | Device registration cleanup | ⬜ |
-| 10 | Admin endpoints | ✅ `admin/AdminController` (`@PreAuthorize hasRole('ADMIN')`) + `AdminService` — earn-code create/revoke (makes Phase 5 usable), user roster (`GET /users`), user search (email/phone), user detail (`GET /users/{uid}`), user activity, points-adjustment (writes `adjust` activity + audit), audit list, catalog CRUD (`POST/PUT/DELETE /rewards`), cashier provisioning (`POST /cashiers` — Admin-SDK `createUser` + `setCustomUserClaims(role:cashier)` + user doc), analytics (`GET /analytics` — `AnalyticsService` folds earn/redeem/users in-range into revenue/points/gifts/new-clients/per-cashier/day-series). Writes idempotency-guarded + audit-logged via `AuditService` (catalog); cashier-create audited non-transactionally; reads capped. Earn codes MAD-priced (`amountMAD` + backend `POINTS_PER_MAD`); redeem completions record `completedByUid` for per-cashier stats. `EarnCodeService.create/revoke` added |
+| 10 | Admin endpoints | ✅ `admin/AdminController` (`@PreAuthorize hasRole('ADMIN')`) + `AdminService` — earn-code create/revoke (makes Phase 5 usable), user roster (`GET /users`), user search (email/phone), user detail (`GET /users/{uid}`), user activity, points-adjustment (writes `adjust` activity + audit), audit list, catalog CRUD (`POST/PUT/DELETE /rewards`), idempotent cashier provisioning (`POST /cashiers` — resumable `CashierProvisioningService` with deterministic Auth UID, atomic profile + audit, role granted last), analytics (`GET /analytics` — `AnalyticsService` folds earn/redeem/users in-range into revenue/points/gifts/new-clients/per-cashier/day-series). Writes are idempotency-guarded and audit-logged; reads are capped. Earn codes MAD-priced (`amountMAD` + backend `POINTS_PER_MAD`); redeem completions record `completedByUid` for per-cashier stats. `EarnCodeService.create/revoke` added |
 | 11 | Backend tests | ⏳ pure-logic unit tests green (idempotency key, rate-limit, cooldown, redeem-code shape/TTL, device validation, birthday, admin, **`ClientIpResolver` last-hop anti-spoof**). Firestore transaction paths (earn/redeem/cancel/complete/expire) deferred to Firebase-emulator integration tests — env has no creds |
 | 11 | Android tests | ⬜ |
 | 11 | Manual QA pass | ⬜ |
@@ -606,3 +606,32 @@ Remaining deployment/QA:
   delivery plus notification permission behavior on Android 13+.
 - Current selector bounds are suitable for the present tenant size. Add paged campaign jobs or
   segment rollups before either collection exceeds its documented cap.
+
+---
+
+## 23. Idempotent Cashier Provisioning (2026-07-20)
+
+Progress: implemented; automated local verification complete.
+
+Completed:
+
+- `POST /api/v1/admin/cashiers` now requires `Idempotency-Key`, matching the locked rule that all
+  admin writes are idempotent.
+- Added `CashierProvisioningService`, a resumable Firebase Auth/Firestore workflow with a
+  deterministic Firebase UID. The profile and audit entry commit atomically before the cashier
+  claim is granted, so a partial account cannot have cashier privileges without its profile.
+- Completed replays return the same UID/email and `Idempotency-Replayed: true`. Reusing a key with
+  changed input returns `IDEMPOTENCY_KEY_REUSED`; only a SHA-256 request hash is persisted, never
+  the initial password.
+- Updated the admin Android repository to attach an idempotency key before making the HTTP call.
+- Added unit coverage for missing keys, successful replay, changed-body rejection, request hashing,
+  and recovery after a role-assignment failure without a duplicate profile/audit stage.
+
+Verification:
+
+- Targeted backend `CashierProvisioningServiceTest`: passed.
+- Full backend `gradlew test --rerun-tasks`: passed (75 tests).
+- Admin Android `compileDebugJavaWithJavac` and targeted
+  `CreateCashierRepositoryTest`: passed. The full admin unit suite still has the same three
+  pre-existing `DashboardViewModelTest` Mockito/JDK 21 initialization failures documented in
+  section 22; they do not execute cashier provisioning code.
