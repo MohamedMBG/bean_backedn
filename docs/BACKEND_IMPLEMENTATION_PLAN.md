@@ -196,8 +196,9 @@ Status: ✅ done · ⏳ in progress · ⬜ not started · ⛔ blocked
 | 0 | Spring Boot skeleton | ✅ |
 | 0 | Backend location chosen | ✅ |
 | 1 | Firestore rules locked | ✅ `firestore.rules` — client trust boundary (own profile read + non-economy write, own activity read, catalog read; all backend-only collections denied). `firestore.indexes.json` = the two `redeem_codes` composite indexes. `firebase.json` wires both. **Deploy = owner action:** `firebase deploy --only firestore:rules,firestore:indexes` |
-| 1 | API key restrictions | ⬜ owner console action (restrict Android API key to app + enabled APIs) |
-| 1 | Rules tests / verification | ⏳ rules authored; emulator test suite (`@firebase/rules-unit-testing`) deferred — needs Node/emulator, not run in this backend build |
+| 1 | API key restrictions | ⬜ owner console action (restrict Android API key to app + enabled APIs) — **release-gating, see §17** |
+| 1 | Rules tests / verification | ⏳ rules authored; emulator test suite (`@firebase/rules-unit-testing`) deferred — needs Node/emulator, not run in this backend build — **release-gating, see §17** |
+| 1 | Admin/cashier custom claims bootstrap | ⬜ not documented — first admin claim has no self-service path since claim-granting is itself admin-only |
 | 2 | Firebase Admin SDK dep | ✅ |
 | 2 | `FirebaseAdminConfig` | ✅ |
 | 2 | `ApiError` + `ApiResponse` | ✅ |
@@ -478,6 +479,8 @@ SPRING_PROFILES_ACTIVE=staging
 | Business rules undefined → Phase 5 blocked | High | Write `BUSINESS_RULES.md` before Phase 5 |
 | Bucket4j in-memory rate limit broken if Render scales | Low | Free tier = 1 instance; revisit on paid |
 | Firebase Admin SDK init logs leak credentials | Medium | Verify no `credentialsJson` value logged |
+| First admin has no bootstrap path — claim-granting endpoints are themselves admin-only | High | Document manual `firebase-admin` SDK / console script to set the first `ADMIN` custom claim per environment before any admin endpoint is used |
+| Rules deployed to staging/prod without emulator test coverage — regressions ship silently | Medium | Run `@firebase/rules-unit-testing` suite before every rules deploy, not just at authoring time |
 
 ---
 
@@ -486,12 +489,16 @@ SPRING_PROFILES_ACTIVE=staging
 - [ ] All Phase 2 acceptance criteria met
 - [ ] Endpoints in section 10 (authenticated + cashier) implemented
 - [ ] Firestore rules block direct client mutation of economy fields
+- [ ] Firestore rules allow-list matches actual client profile writes (`address`, `gender`, `profileComplete` — §3.2) — verify before any rules deploy, not just at Phase 1 authoring
+- [ ] Firebase emulator rules test suite (`@firebase/rules-unit-testing`) run and green: allowed profile edits, rejected points/visits edits, own-activity reads, other-user access rejection, backend-only collection rejection — promoted from deferred (line 200) to release gate
 - [ ] Idempotent birthday + QR earn + redemption
 - [ ] Cashier role enforced
+- [ ] Admin/cashier custom claims bootstrap procedure documented (who grants the first admin claim, since claim-granting endpoints themselves require an existing admin)
 - [ ] Activity canonical schema written by all economy endpoints
 - [ ] Device registration backend-owned
 - [ ] No secrets in logs (manual log review)
 - [ ] Backend deployed to Render staging
+- [ ] Android API key restricted per environment (package + SHA fingerprint) — promoted from owner-console checkbox (line 199) to release gate
 - [ ] Android pointed at staging URL passes manual QA
 - [ ] Production deploy + rollback plan documented
 

@@ -33,7 +33,8 @@ service cloud.firestore {
     // (including the economy fields above) fails the write.
     function onlyProfileFieldsChanged() {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-        ['displayName', 'name', 'birthday', 'phone', 'email', 'photoUrl', 'fcmOptIn']
+        ['displayName', 'name', 'birthday', 'phone', 'email', 'photoUrl', 'fcmOptIn',
+         'address', 'gender', 'profileComplete']
       );
     }
 
