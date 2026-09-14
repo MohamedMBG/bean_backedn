@@ -55,6 +55,9 @@ public class SecurityConfig {
                         //  /actuator/info           — build/app metadata; safe to expose.
                         .requestMatchers(
                                 "/health",
+                                "/api/v1/auth/register",
+                                "/api/v1/auth/verify",
+                                "/api/v1/auth/email",
                                 "/actuator/health",
                                 "/actuator/health/**",
                                 "/actuator/info"

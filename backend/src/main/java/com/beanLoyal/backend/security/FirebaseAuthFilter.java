@@ -121,6 +121,9 @@ public class FirebaseAuthFilter extends OncePerRequestFilter {
         // on every uptime probe. SecurityConfig already permits these paths.
         String path = request.getRequestURI();
         return path.equals("/health")
+                || path.equals("/api/v1/auth/register")
+                || path.equals("/api/v1/auth/verify")
+                || path.equals("/api/v1/auth/email")
                 || path.startsWith("/actuator/");
     }
 

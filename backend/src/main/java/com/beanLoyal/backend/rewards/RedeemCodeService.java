@@ -65,6 +65,27 @@ public class RedeemCodeService {
     private final AuditService auditService;
     private final Clock clock;
 
+    public record PendingReward(String code, String rewardId, String rewardName,
+                                long cost, String status, long expiresAtEpochMs) {}
+    public record PendingRewardResponse(PendingReward pending) {}
+
+    /** Read only, bounded lookup scoped exclusively to the authenticated customer. */
+    public PendingRewardResponse pendingReward(String uid) throws ExecutionException, InterruptedException {
+        var snapshot = firestore.collection(RedeemCode.COLLECTION)
+                .whereEqualTo(RedeemCode.UID, uid)
+                .whereEqualTo(RedeemCode.STATUS, RedeemCode.STATUS_PENDING)
+                .limit(1).get().get();
+        if (snapshot.isEmpty()) return new PendingRewardResponse(null);
+        var doc = snapshot.getDocuments().getFirst();
+        Timestamp expiry = doc.getTimestamp(RedeemCode.EXPIRES_AT);
+        long expiresAt = expiry == null ? 0 : expiry.toDate().getTime();
+        String status = expiresAt <= clock.millis() ? "awaiting_refund" : "pending";
+        Long cost = doc.getLong(RedeemCode.COST);
+        return new PendingRewardResponse(new PendingReward(doc.getId(),
+                doc.getString(RedeemCode.REWARD_ID), doc.getString(RedeemCode.REWARD_NAME),
+                cost == null ? 0 : cost, status, expiresAt));
+    }
+
     public RedeemCodeService(Firestore firestore, ActivityService activityService,
                              AuditService auditService, Clock clock) {
         this.firestore = firestore;

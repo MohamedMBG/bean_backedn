@@ -24,6 +24,13 @@ import org.springframework.web.bind.annotation.RequestMapping;
 @RequestMapping("/rewards")
 public class RewardsController {
 
+    @org.springframework.web.bind.annotation.GetMapping("/redeem/pending")
+    public ResponseEntity<com.beanLoyal.backend.common.ApiResponse<RedeemCodeService.PendingRewardResponse>> pending(
+            @AuthenticationPrincipal CurrentUser user) throws Exception {
+        return ResponseEntity.ok().header("Cache-Control", "no-store")
+                .body(com.beanLoyal.backend.common.ApiResponse.of(redeemCodeService.pendingReward(user.uid())));
+    }
+
     private final BirthdayRewardService birthdayRewardService;
     private final RewardRedemptionService rewardRedemptionService;
     private final RedeemCodeService redeemCodeService;

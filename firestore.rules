@@ -72,5 +72,7 @@ service cloud.firestore {
     match /devices/{deviceId}        { allow read, write: if false; }
     match /audit/{auditId}           { allow read, write: if false; }
     match /idempotency/{key}         { allow read, write: if false; }
+    // Email sign-in link hashes: readable only by the Admin SDK, never by a client.
+    match /email_signins/{tokenHash} { allow read, write: if false; }
   }
 }
