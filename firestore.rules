@@ -1,6 +1,11 @@
 rules_version = '2';
 
-// BeanLoyal Firestore security rules.
+// BeanLoyal Firestore security rules — the single deployment source.
+//
+// This repository owns firebase.json, firestore.indexes.json and render.yaml, so rules are deployed
+// from here (`firebase deploy --only firestore`). The customer app repository used to carry a second,
+// divergent copy; it was deleted so the two can no longer drift apart. The emulator suite in
+// coffeshop_networking/tests/firestore loads this file by relative path.
 //
 // These rules constrain the CLIENT (mobile app via the Firebase client SDK) only. The backend uses
 // the Firebase Admin SDK, which bypasses security rules entirely, so every backend-owned write still
@@ -21,30 +26,57 @@ service cloud.firestore {
       return request.auth != null && request.auth.uid == uid;
     }
 
-    // Economy fields the client must NEVER write (backend-owned). Used to reject a profile update
-    // that tries to smuggle a balance/visit/verification change past the field allow-list.
-    function noEconomyFields() {
-      return !request.resource.data.keys().hasAny(
-        ['points', 'visits', 'isVerified', 'lastEarnAt']
-      );
+    // Fields the client is allowed to write on its own user doc. Every name here is one the app
+    // actually writes: `uid`, `email`, `fullName`, `birthday`, `gender`, `phone`, `address`,
+    // `profileComplete` and `updatedAt` come from SignUpActivity's profile bootstrap and
+    // ProfileViewModel.saveProfile. Re-verify this list whenever a profile field is added — a name
+    // missing here fails the whole write with PERMISSION_DENIED (release gate §17a).
+    function allowedProfileFields() {
+      return ['fullName', 'birthday', 'gender', 'phone', 'address',
+              'profileComplete', 'email', 'uid', 'updatedAt'];
     }
 
-    // Only these keys may change on a client-initiated profile update. Any other changed key
-    // (including the economy fields above) fails the write.
+    // Economy fields the client must NEVER write — the backend owns every one of them. Listed
+    // separately from the allow-list so a profile update cannot smuggle a balance, visit-cooldown or
+    // verification change past it.
+    function protectedProfileFields() {
+      return ['points', 'visits', 'isVerified', 'lastEarnAt', 'lastVisitTimestamp', 'createdAt'];
+    }
+
     function onlyProfileFieldsChanged() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-        ['displayName', 'name', 'birthday', 'phone', 'email', 'photoUrl', 'fcmOptIn',
-         'address', 'gender', 'profileComplete']
-      );
+      return request.resource.data.diff(resource.data).affectedKeys()
+        .hasOnly(allowedProfileFields());
+    }
+
+    function doesNotTouchProtected() {
+      return !request.resource.data.diff(resource.data).affectedKeys()
+        .hasAny(protectedProfileFields());
     }
 
     match /users/{uid} {
       // Owner reads own profile; backend (Admin SDK) reads anyone.
       allow read: if isOwner(uid);
-      // Signup may create the doc, but never seed economy fields.
-      allow create: if isOwner(uid) && noEconomyFields();
+
+      // Creation needs the allow-list too: checking only points/visits would still let signup seed
+      // an arbitrary role, balance, cooldown or verification field. `createdAt` is creation-only,
+      // which is why it appears here but stays in protectedProfileFields() for updates.
+      allow create: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(
+          allowedProfileFields().concat(['createdAt']))
+        && request.resource.data.get('uid', uid) == uid
+        && request.resource.data.get('profileComplete', false) is bool
+        && request.resource.data.get('createdAt', request.time) == request.time
+        && request.resource.data.get('updatedAt', request.time) == request.time;
+
       // Profile edits only; economy fields stay backend-owned.
-      allow update: if isOwner(uid) && onlyProfileFieldsChanged();
+      allow update: if isOwner(uid)
+        && onlyProfileFieldsChanged()
+        && doesNotTouchProtected()
+        && request.resource.data.get('uid', uid) == uid
+        && request.resource.data.get('profileComplete', false) is bool
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['updatedAt'])
+          || request.resource.data.updatedAt == request.time);
+
       allow delete: if false;
 
       // Activity feed: owner reads their own history; only the backend writes it.
@@ -54,7 +86,8 @@ service cloud.firestore {
       }
     }
 
-    // Client-readable catalog read models (backend writes via Admin SDK).
+    // Client-readable catalog read models (backend writes via Admin SDK). Signed-in only: the app
+    // loads both after authentication, so there is no reason to expose the catalog publicly.
     match /menu_items/{itemId} {
       allow read: if signedIn();
       allow write: if false;
@@ -64,8 +97,22 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Read before sign-in on purpose. MainActivity.onStart reads meta/app_status as a kill switch
+    // while the splash screen is still up, and the home banner renders from config/home_banner —
+    // requiring auth here would break the gate for signed-out users, which is exactly when it
+    // matters most.
+    match /config/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+    match /meta/{docId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
     // Fully backend-owned collections: no client read or write at all.
-    // (The mobile app receives redeem/earn codes in API responses, so it never needs to read these.)
+    // (The mobile app receives redeem/earn codes in API responses, so it never needs to read these.
+    // Allowing reads would also let any signed-in customer enumerate unused earn codes.)
     match /earn_codes/{codeId}       { allow read, write: if false; }
     match /redeem_codes/{codeId}     { allow read, write: if false; }
     match /birthday_claims/{claimId} { allow read, write: if false; }
@@ -74,5 +121,11 @@ service cloud.firestore {
     match /idempotency/{key}         { allow read, write: if false; }
     // Email sign-in link hashes: readable only by the Admin SDK, never by a client.
     match /email_signins/{tokenHash} { allow read, write: if false; }
+
+    // Explicit default deny. Firestore denies unmatched paths anyway; stating it means a new
+    // collection added above this line is never silently exposed by a typo in its own match block.
+    match /{document=**} {
+      allow read, write: if false;
+    }
   }
 }
