@@ -42,6 +42,7 @@ class EmailAuthServiceTest {
         when(profile.getId()).thenReturn("customer");
         when(link.set(any())).thenReturn(ApiFutures.immediateFuture(null));
         when(link.delete()).thenReturn(ApiFutures.immediateFuture(null));
+        when(link.get()).thenReturn(ApiFutures.immediateFuture(linkDoc));
         when(tx.get(link)).thenReturn(ApiFutures.immediateFuture(linkDoc));
         when(tx.get(profile)).thenReturn(ApiFutures.immediateFuture(profileDoc));
         when(db.runTransaction(any(Transaction.Function.class))).thenAnswer(call -> {
@@ -123,6 +124,14 @@ class EmailAuthServiceTest {
         when(user.isDisabled()).thenReturn(true);
         assertThatThrownBy(() -> service.verify("t".repeat(43), verifier)).isInstanceOf(ApiException.class);
         verify(auth, never()).createCustomToken(anyString());
+    }
+
+    @Test
+    void refusingAStaffAccountLeavesTheLinkUnused() {
+        when(user.getCustomClaims()).thenReturn(Map.of("role", "admin"));
+        assertThatThrownBy(() -> service.verify("t".repeat(43), verifier)).isInstanceOf(ApiException.class);
+        // Burning the link here would make every retry report "expired or already used".
+        verify(tx, never()).update(eq(link), anyString(), any());
     }
 
     @Test

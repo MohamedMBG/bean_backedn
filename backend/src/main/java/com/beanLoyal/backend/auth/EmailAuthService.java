@@ -60,6 +60,10 @@ public class EmailAuthService {
 
     public SignInResponse verify(String token, String verifier) throws Exception {
         DocumentReference ref = db.collection("email_signins").document(hash(token));
+        // Refuse a blocked account before the link is spent. Checking only after the
+        // transaction burned the link left the customer with "expired or already used"
+        // on every retry, hiding the real reason.
+        rejectBlockedAccountEarly(ref, verifier);
         String email;
         try {
             email = db.runTransaction(tx -> {
@@ -86,11 +90,9 @@ public class EmailAuthService {
                 user = auth.getUserByEmail(email);
             }
         }
-        // This endpoint must not become an alternative login method for privileged staff.
-        if (user.isDisabled() || user.getCustomClaims().containsKey("role")) {
-            throw new ApiException(HttpStatus.FORBIDDEN, "SIGNIN_NOT_ALLOWED",
-                    "This account cannot use customer email sign-in.");
-        }
+        // Still enforced here: the account can gain a role between the early check
+        // and this point, and a freshly created user never passed the early check.
+        requireCustomerAccount(user);
         auth.updateUser(new UserRecord.UpdateRequest(user.getUid()).setEmailVerified(true));
         DocumentReference profile = db.collection("users").document(user.getUid());
         db.runTransaction(tx -> {
@@ -110,6 +112,36 @@ public class EmailAuthService {
             return null;
         }).get();
         return new SignInResponse(true, email, auth.createCustomToken(user.getUid()));
+    }
+
+    /**
+     * Rejects a staff or disabled account while the link is still unused. A missing
+     * link or a first-time customer is left to the main path, which reports the real
+     * outcome; nothing here writes, so a failed attempt costs the customer nothing.
+     */
+    private void rejectBlockedAccountEarly(DocumentReference ref, String verifier) throws Exception {
+        DocumentSnapshot doc = ref.get().get();
+        // An unknown link reveals nothing here; the transaction below reports it.
+        if (!doc.exists()) return;
+        // Validate before touching Firebase so a caller holding a link but not the
+        // device verifier cannot learn anything about the account behind it.
+        validateLink(true, doc.getBoolean("used"), doc.getTimestamp("expiresAt"),
+                doc.getString("challenge"), verifier, Instant.now());
+        String email = doc.getString("email");
+        if (email == null) return;
+        try {
+            requireCustomerAccount(auth.getUserByEmail(email));
+        } catch (FirebaseAuthException e) {
+            if (e.getAuthErrorCode() != AuthErrorCode.USER_NOT_FOUND) throw e;
+        }
+    }
+
+    /** This endpoint must not become an alternative login method for privileged staff. */
+    private static void requireCustomerAccount(UserRecord user) {
+        if (user.isDisabled() || user.getCustomClaims().containsKey("role")) {
+            throw new ApiException(HttpStatus.FORBIDDEN, "SIGNIN_NOT_ALLOWED",
+                    "This account cannot use customer email sign-in.");
+        }
     }
 
     static void validateLink(boolean exists, Boolean used, Timestamp expiry, String challenge,
