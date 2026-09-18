@@ -7,10 +7,6 @@ import com.google.cloud.firestore.*;
 import com.google.firebase.auth.*;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.ObjectProvider;
-import org.springframework.mail.MailSendException;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import java.time.Instant;
 import java.util.Map;
 import org.mockito.ArgumentCaptor;
@@ -21,7 +17,7 @@ import static org.mockito.Mockito.*;
 class EmailAuthServiceTest {
     Firestore db = mock(Firestore.class);
     FirebaseAuth auth = mock(FirebaseAuth.class);
-    JavaMailSender sender = mock(JavaMailSender.class);
+    SignInMailer mailer = mock(SignInMailer.class);
     DocumentReference link = mock(DocumentReference.class);
     DocumentReference profile = mock(DocumentReference.class);
     DocumentSnapshot linkDoc = mock(DocumentSnapshot.class);
@@ -34,9 +30,8 @@ class EmailAuthServiceTest {
     @BeforeEach
     @SuppressWarnings("unchecked")
     void setup() throws Exception {
-        ObjectProvider<JavaMailSender> provider = mock(ObjectProvider.class);
-        when(provider.getIfAvailable()).thenReturn(sender);
-        service = new EmailAuthService(db, auth, provider, "hello@example.com",
+        when(mailer.isAvailable()).thenReturn(true);
+        service = new EmailAuthService(db, auth, mailer, "hello@example.com",
                 "https://example.com/api/v1/auth/email");
         CollectionReference links = mock(CollectionReference.class);
         CollectionReference users = mock(CollectionReference.class);
@@ -70,10 +65,9 @@ class EmailAuthServiceTest {
     @Test
     void sendsLinkWithoutCreatingAnUnverifiedAccount() throws Exception {
         service.register("customer@example.com", EmailAuthService.hash(verifier));
-        ArgumentCaptor<SimpleMailMessage> message = ArgumentCaptor.forClass(SimpleMailMessage.class);
-        verify(sender).send(message.capture());
-        assertThat(message.getValue().getText()).contains("https://example.com/api/v1/auth/email#");
-        assertThat(message.getValue().getTo()).containsExactly("customer@example.com");
+        ArgumentCaptor<String> body = ArgumentCaptor.forClass(String.class);
+        verify(mailer).send(eq("hello@example.com"), eq("customer@example.com"), anyString(), body.capture());
+        assertThat(body.getValue()).contains("https://example.com/api/v1/auth/email#");
         verifyNoInteractions(auth);
     }
 
@@ -133,7 +127,8 @@ class EmailAuthServiceTest {
 
     @Test
     void mailFailureDeletesUndeliveredLink() {
-        doThrow(new MailSendException("unavailable")).when(sender).send(any(SimpleMailMessage.class));
+        doThrow(new MailDeliveryException("unavailable", null))
+                .when(mailer).send(anyString(), anyString(), anyString(), anyString());
         assertThatThrownBy(() -> service.register("customer@example.com", EmailAuthService.hash(verifier)))
                 .isInstanceOf(ApiException.class);
         verify(link).delete();

@@ -4,11 +4,8 @@ import com.beanLoyal.backend.common.ApiException;
 import com.google.cloud.Timestamp;
 import com.google.cloud.firestore.*;
 import com.google.firebase.auth.*;
-import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
-import org.springframework.mail.SimpleMailMessage;
-import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.stereotype.Service;
 
 import java.nio.charset.StandardCharsets;
@@ -23,23 +20,22 @@ import java.util.concurrent.ExecutionException;
 public class EmailAuthService {
     private final Firestore db;
     private final FirebaseAuth auth;
-    private final ObjectProvider<JavaMailSender> mail;
+    private final SignInMailer mailer;
     private final String from;
     private final String publicUrl;
 
-    public EmailAuthService(Firestore db, FirebaseAuth auth, ObjectProvider<JavaMailSender> mail,
+    public EmailAuthService(Firestore db, FirebaseAuth auth, SignInMailer mailer,
             @Value("${auth.email.from:}") String from,
             @Value("${auth.email.public-url:}") String publicUrl) {
         this.db = db;
         this.auth = auth;
-        this.mail = mail;
+        this.mailer = mailer;
         this.from = from;
         this.publicUrl = publicUrl;
     }
 
     public void register(String email, String challenge) throws Exception {
-        JavaMailSender sender = mail.getIfAvailable();
-        if (sender == null || from.isBlank() || !publicUrl.startsWith("https://")) {
+        if (!mailer.isAvailable() || from.isBlank() || !publicUrl.startsWith("https://")) {
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "EMAIL_UNAVAILABLE",
                     "Email sign-in is temporarily unavailable.");
         }
@@ -48,18 +44,14 @@ public class EmailAuthService {
         ref.set(Map.of("email", email, "challenge", challenge,
                 "expiresAt", Timestamp.ofTimeSecondsAndNanos(Instant.now().plusSeconds(900).getEpochSecond(), 0),
                 "used", false)).get();
-        SimpleMailMessage message = new SimpleMailMessage();
-        message.setFrom(from);
-        message.setTo(email);
-        message.setSubject("Sign in to BeanLoyal");
         // Fragment stays out of HTTP access logs and referrer headers.
-        message.setText("Open this link on the phone where you requested it to sign in to BeanLoyal:\n\n"
+        String body = "Open this link on the phone where you requested it to sign in to BeanLoyal:\n\n"
                 + publicUrl + "#" + token
                 + "\n\nThis link expires in 15 minutes and can be used once."
-                + " If you did not request it, ignore this email.");
+                + " If you did not request it, ignore this email.";
         try {
-            sender.send(message);
-        } catch (org.springframework.mail.MailException e) {
+            mailer.send(from, email, "Sign in to BeanLoyal", body);
+        } catch (MailDeliveryException e) {
             ref.delete().get();
             throw new ApiException(HttpStatus.SERVICE_UNAVAILABLE, "EMAIL_UNAVAILABLE",
                     "Could not send the email. Please try again later.");

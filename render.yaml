@@ -13,10 +13,15 @@ services:
         value: loyalty-de0e1
       - key: FIREBASE_CREDENTIALS_JSON
         sync: false
-      # Email sign-in. Without SPRING_MAIL_HOST/SMTP_USERNAME/SMTP_PASSWORD and
-      # AUTH_EMAIL_FROM, /api/v1/auth/register answers EMAIL_UNAVAILABLE.
+      # Email sign-in. Free instances cannot reach SMTP ports 25/465/587 at all, so
+      # BREVO_API_KEY is the transport that works here; it takes precedence over the
+      # SMTP variables below, which only apply on paid instances or other hosts.
+      # Without a working transport plus AUTH_EMAIL_FROM, /api/v1/auth/register
+      # answers EMAIL_UNAVAILABLE.
+      - key: BREVO_API_KEY
+        sync: false
       # SendGrid: host smtp.sendgrid.net, username "apikey", password the API key.
-      # AUTH_EMAIL_FROM must be an address on a domain verified with the relay.
+      # AUTH_EMAIL_FROM must be an address verified with whichever provider sends.
       - key: SPRING_MAIL_HOST
         sync: false
       - key: SMTP_PORT

@@ -29,6 +29,10 @@ auth:
   email:
     from: ${AUTH_EMAIL_FROM:}
     public-url: ${AUTH_EMAIL_PUBLIC_URL:}
+    # Preferred transport. Hosts commonly block outbound SMTP ports (Render does so on
+    # free instances), where an HTTPS provider API is the only route that reaches the
+    # network. When set it replaces spring.mail; the sender must be verified in Brevo.
+    brevo-api-key: ${BREVO_API_KEY:}
 
 firebase:
   project-id: ${FIREBASE_PROJECT_ID:}
