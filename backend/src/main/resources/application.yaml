@@ -49,6 +49,14 @@ management:
     health:
       probes:
         enabled: true
+  health:
+    # The auto-configured mail indicator opens an SMTP connection to spring.mail.host on every
+    # health check. Hosts that block outbound SMTP (Render free) fail that probe, which drags the
+    # aggregate /actuator/health to DOWN and makes the platform health check treat a perfectly
+    # serving instance as unhealthy. Sign-in email actually goes out over the Brevo HTTPS API, so
+    # SMTP reachability is not a readiness signal here.
+    mail:
+      enabled: false
 
 logging:
   pattern:
